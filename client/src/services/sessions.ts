@@ -15,6 +15,8 @@ export const logoutSession = (id: string) => apiPost<void>(`/api/sessions/${id}/
 
 export const pairSession = (id: string) => apiPost<void>(`/api/sessions/${id}/pair`, {});
 
+export const restartSession = (id: string) => apiPost<void>(`/api/sessions/${id}/restart`, {});
+
 export type SessionUpdate = {
   name: string;
   color: string;

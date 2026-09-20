@@ -227,19 +227,75 @@ func (m *SessionManager) Restore(ctx context.Context) error {
 			continue
 		}
 		if row.JID == "" {
-			_ = m.store.delete(ctx, row.ID)
+			device := m.container.NewDevice()
+			client := whatsmeow.NewClient(device, m.waLogger)
+			s := newSession(m, row.ID, row.Name, client)
+			s.ownerID = row.OwnerID
+			s.color = row.Color
+			s.isDefault = row.IsDefault
+			s.allowGroups = row.AllowGroups
+			s.integrationToken = row.IntegrationToken
+			s.queueID = row.QueueID
+			s.redirectMinutes = row.RedirectMinutes
+			s.flowID = row.FlowID
+			s.chatFlowID = row.ChatFlowID
+			s.greetingMessage = row.GreetingMessage
+			s.completionMessage = row.CompletionMessage
+			s.outOfHoursMessage = row.OutOfHoursMessage
+			s.surveyEnabled = row.SurveyEnabled
+			s.surveyPrompt = row.SurveyPrompt
+			s.setAuth(AuthSnapshot{State: "logged_out", Paired: false})
+			m.register(s)
 			continue
 		}
 		jid, err := types.ParseJID(row.JID)
 		if err != nil {
-			m.log.Warn("dropping session with unparseable jid", "session", row.ID, "jid", row.JID)
-			_ = m.store.delete(ctx, row.ID)
+			m.log.Warn("resetting session with unparseable jid", "session", row.ID, "jid", row.JID)
+			_ = m.store.setJID(ctx, row.ID, "")
+			device := m.container.NewDevice()
+			client := whatsmeow.NewClient(device, m.waLogger)
+			s := newSession(m, row.ID, row.Name, client)
+			s.ownerID = row.OwnerID
+			s.color = row.Color
+			s.isDefault = row.IsDefault
+			s.allowGroups = row.AllowGroups
+			s.integrationToken = row.IntegrationToken
+			s.queueID = row.QueueID
+			s.redirectMinutes = row.RedirectMinutes
+			s.flowID = row.FlowID
+			s.chatFlowID = row.ChatFlowID
+			s.greetingMessage = row.GreetingMessage
+			s.completionMessage = row.CompletionMessage
+			s.outOfHoursMessage = row.OutOfHoursMessage
+			s.surveyEnabled = row.SurveyEnabled
+			s.surveyPrompt = row.SurveyPrompt
+			s.setAuth(AuthSnapshot{State: "logged_out", Paired: false})
+			m.register(s)
 			continue
 		}
 		device, err := m.container.GetDevice(ctx, jid)
 		if err != nil || device == nil {
-			m.log.Warn("dropping session with no stored device", "session", row.ID, "jid", row.JID, "err", err)
-			_ = m.store.delete(ctx, row.ID)
+			m.log.Warn("resetting session with missing stored device", "session", row.ID, "jid", row.JID, "err", err)
+			_ = m.store.setJID(ctx, row.ID, "")
+			device = m.container.NewDevice()
+			client := whatsmeow.NewClient(device, m.waLogger)
+			s := newSession(m, row.ID, row.Name, client)
+			s.ownerID = row.OwnerID
+			s.color = row.Color
+			s.isDefault = row.IsDefault
+			s.allowGroups = row.AllowGroups
+			s.integrationToken = row.IntegrationToken
+			s.queueID = row.QueueID
+			s.redirectMinutes = row.RedirectMinutes
+			s.flowID = row.FlowID
+			s.chatFlowID = row.ChatFlowID
+			s.greetingMessage = row.GreetingMessage
+			s.completionMessage = row.CompletionMessage
+			s.outOfHoursMessage = row.OutOfHoursMessage
+			s.surveyEnabled = row.SurveyEnabled
+			s.surveyPrompt = row.SurveyPrompt
+			s.setAuth(AuthSnapshot{State: "logged_out", Paired: false})
+			m.register(s)
 			continue
 		}
 		client := whatsmeow.NewClient(device, m.waLogger)
@@ -459,8 +515,21 @@ func (m *SessionManager) Pair(id string) error {
 	if !ok {
 		return fmt.Errorf("no session %s", id)
 	}
+	if s.mode == "cloud" {
+		s.setAuth(AuthSnapshot{State: "open", Paired: true})
+		return nil
+	}
 	if s.client.Store.ID != nil {
-		return fmt.Errorf("session already paired")
+		if s.client.IsConnected() {
+			s.setAuth(AuthSnapshot{State: "open", Paired: true})
+			return nil
+		}
+		s.setAuth(AuthSnapshot{State: "connecting", Paired: true})
+		if err := s.client.Connect(); err != nil {
+			s.log.Warn("reconnect existing paired session failed", "session", id, "err", err)
+			return err
+		}
+		return nil
 	}
 	s.replaceClient(whatsmeow.NewClient(m.container.NewDevice(), m.waLogger))
 	if err := s.startPairing(m.appCtx); err != nil {
@@ -468,6 +537,29 @@ func (m *SessionManager) Pair(id string) error {
 	}
 	m.broker.emitSessionList(m.infos())
 	m.log.Info("session re-pairing", "session", id)
+	return nil
+}
+
+func (m *SessionManager) Restart(ctx context.Context, id string) error {
+	s, ok := m.Get(id)
+	if !ok {
+		return fmt.Errorf("no session %s", id)
+	}
+	if s.mode == "cloud" {
+		s.setAuth(AuthSnapshot{State: "open", Paired: true})
+		return nil
+	}
+	if s.client.Store.ID == nil {
+		return m.Pair(id)
+	}
+	s.client.Disconnect()
+	s.setAuth(AuthSnapshot{State: "connecting", Paired: true})
+	if err := s.client.Connect(); err != nil {
+		s.setAuth(AuthSnapshot{State: "logged_out", Paired: true})
+		return fmt.Errorf("reconnect failed: %w", err)
+	}
+	m.broker.emitSessionList(m.infos())
+	m.log.Info("session restarted", "session", id)
 	return nil
 }
 

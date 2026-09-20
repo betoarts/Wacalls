@@ -287,7 +287,25 @@ func (s *Session) handleEvent(rawEvt any) {
 			time.Sleep(5 * time.Second)
 			s.sendWelcomeToSelf()
 		}()
+	case *events.Disconnected:
+		s.log.Info("session disconnected (whatsmeow will auto-reconnect if paired)", "session", s.id)
+		if s.client.Store.ID != nil {
+			s.setAuth(AuthSnapshot{State: "connecting", Paired: true})
+		} else {
+			s.setAuth(AuthSnapshot{State: "logged_out", Paired: false})
+		}
+	case *events.StreamReplaced:
+		s.log.Warn("stream replaced for session", "session", s.id)
+		s.setAuth(AuthSnapshot{State: "connecting", Paired: s.client.Store.ID != nil})
+	case *events.ConnectFailure:
+		s.log.Warn("session connect failure", "session", s.id, "reason", evt.Reason)
+		if evt.Reason.IsLoggedOut() {
+			s.setAuth(AuthSnapshot{State: "logged_out", Paired: false})
+		}
+	case *events.TemporaryBan:
+		s.log.Warn("session temporary ban", "session", s.id, "code", evt.Code, "expire", evt.Expire)
 	case *events.LoggedOut:
+		s.log.Warn("session logged out by whatsapp", "session", s.id, "reason", evt.Reason)
 		s.setAuth(AuthSnapshot{State: "logged_out", Paired: false})
 		// Numero desconectado: o proximo pareamento recebe a saudacao de novo.
 		if s.mgr != nil && s.mgr.store != nil {
@@ -351,6 +369,9 @@ func (s *Session) connect(ctx context.Context) error {
 }
 
 func (s *Session) startPairing(ctx context.Context) error {
+	if s.client.IsConnected() {
+		s.client.Disconnect()
+	}
 	qrChan, err := s.client.GetQRChannel(ctx)
 	if err != nil {
 		return err
@@ -362,7 +383,7 @@ func (s *Session) startPairing(ctx context.Context) error {
 		for evt := range qrChan {
 			switch evt.Event {
 			case "code":
-				s.log.Info("scan the QR code to pair this session")
+				s.log.Info("scan the QR code to pair this session", "session", s.id)
 				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
 				s.setAuth(AuthSnapshot{State: "qr", QR: evt.Code})
 				s.mgr.broker.emitSessionQR(s.id, evt.Code)

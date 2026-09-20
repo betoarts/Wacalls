@@ -52,14 +52,16 @@ func Open(cfg Config) (*sql.DB, string, error) {
 		if path == "" {
 			path = "wacalls.db"
 		}
-		dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)"
+		dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=cache_size(-20000)&_pragma=temp_store(MEMORY)"
 		db, err := sql.Open("sqlite", dsn)
 		if err != nil {
 			return nil, "", err
 		}
-		// SQLite is a single-writer engine in this app; keep the pool at 1
-		// to serialise writes and avoid SQLITE_BUSY under load.
-		db.SetMaxOpenConns(1)
+		// SQLite in WAL mode supports concurrent readers with serialized writers.
+		// A pool size of 25 allows multiple whatsmeow sessions and background handlers
+		// to operate concurrently without starving or dropping websocket connections.
+		db.SetMaxOpenConns(25)
+		db.SetMaxIdleConns(10)
 		return db, "sqlite3", nil
 	case "mariadb", "mysql":
 		return nil, "", fmt.Errorf("storage: DB_DRIVER=%s is not supported by this WaCalls build because whatsmeow does not accept the mysql dialect; remove DB_DRIVER/DB_DSN and use SQLite + Redis", driver)
