@@ -1,7 +1,7 @@
 #!/bin/bash
 # =====================================================================
 #  WaCalls (Go) — Instalador para Ubuntu 22.04 LTS
-#  Adaptado a partir do instalador Equipechat v7.0 (Raphael Batista)
+#  Adaptado a partir do instalador Equipechat v7.0 (Humberto Moura)
 #  Projeto: https://github.com/betoarts/Wacalls  (WaCalls — chamadas WhatsApp em Go)
 # =====================================================================
 
@@ -595,8 +595,8 @@ banner() {
   printf "  ${YELLOW}IP da VPS: ${CYAN}${ip_atual}${WHITE}   ${YELLOW}Data: ${CYAN}$(date '+%d/%m/%Y %H:%M:%S')${WHITE}\n"
   printf "\n"
   printf "  ${CYAN}Repositório:${WHITE}    ${BLUE}https://github.com/betoarts/Wacalls${WHITE}\n"
-  printf "  ${CYAN}Originado de:${WHITE}   ${BLUE}https://github.com/JotaDev66/WaCalls${WHITE}\n"
-  printf "  ${CYAN}Créditos originais:${WHITE} ${GREEN}JotaDev66${WHITE} • ${GREEN}jobasfernandes${WHITE} • ${GREEN}Canal Vem Fazer${WHITE} (${BLUE}https://www.youtube.com/@vemfazer${WHITE})\n\n"
+  
+  
 
 }
 
