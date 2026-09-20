@@ -1,7 +1,7 @@
 # Setup local (Windows / Linux / macOS)
 
 > 💡 No Windows, existe também o **instalador local** (R$ 39,90/mês): instala como serviço,
-> sobe com o computador e dispensa VPS e domínio. Fale com **81 99588-5670**.
+> sobe com o computador e dispensa VPS e domínio. Fale com **54 991680204**.
 > O guia abaixo é o caminho manual, gratuito.
 
 Guia rápido pra rodar o projeto do zero. Você pode rodar tudo com **um único comando** (recomendado) ou em dois terminais separados.
