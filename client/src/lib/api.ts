@@ -57,10 +57,21 @@ async function parseError(path: string, r: Response): Promise<ApiError> {
   return new ApiError(msg, r.status, payload, false);
 }
 
+async function parseResponse<T>(r: Response): Promise<T> {
+  if (r.status === 204) return undefined as T;
+  const text = await r.text();
+  if (!text || !text.trim()) return undefined as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return text as unknown as T;
+  }
+}
+
 export const apiGet = async <T>(path: string): Promise<T> => {
   const r = await fetch(apiUrl(path), { headers: baseHeaders(), credentials: "include" });
   if (!r.ok) throw await parseError(path, r);
-  return r.json() as Promise<T>;
+  return parseResponse<T>(r);
 };
 
 export const apiPost = async <T>(path: string, body: unknown): Promise<T> => {
@@ -71,7 +82,7 @@ export const apiPost = async <T>(path: string, body: unknown): Promise<T> => {
     body: JSON.stringify(body),
   });
   if (!r.ok) throw await parseError(path, r);
-  return r.json() as Promise<T>;
+  return parseResponse<T>(r);
 };
 
 export const apiDelete = async (path: string): Promise<void> => {
@@ -87,7 +98,7 @@ export const apiPatch = async <T>(path: string, body: unknown): Promise<T> => {
     body: JSON.stringify(body),
   });
   if (!r.ok) throw await parseError(path, r);
-  return r.json() as Promise<T>;
+  return parseResponse<T>(r);
 };
 
 export const apiPut = async <T>(path: string, body: unknown): Promise<T> => {
@@ -98,5 +109,5 @@ export const apiPut = async <T>(path: string, body: unknown): Promise<T> => {
     body: JSON.stringify(body),
   });
   if (!r.ok) throw await parseError(path, r);
-  return r.json() as Promise<T>;
+  return parseResponse<T>(r);
 };
