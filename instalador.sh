@@ -2,7 +2,7 @@
 # =====================================================================
 #  WaCalls (Go) — Instalador para Ubuntu 22.04 LTS
 #  Adaptado a partir do instalador Equipechat v7.0 (Raphael Batista)
-#  Projeto: https://github.com/  (WaCalls — chamadas WhatsApp em Go)
+#  Projeto: https://github.com/betoarts/Wacalls  (WaCalls — chamadas WhatsApp em Go)
 # =====================================================================
 
 set -o pipefail
@@ -24,8 +24,8 @@ APP_NAME="wacalls"
 APP_USER="root"
 APP_HOME="/root"
 APP_DIR="${APP_HOME}/${APP_NAME}"
-REPO_PADRAO="https://github.com/raphaelbat/wacalls-chat.git"
-BRANCH_PADRAO="feat/video-calls"
+REPO_PADRAO="https://github.com/betoarts/Wacalls.git"
+BRANCH_PADRAO="main"
 GO_VERSION_FALLBACK="1.26.4"
 NODE_MAJOR="22"
 
@@ -594,7 +594,7 @@ banner() {
   printf "  ${WHITE}Versão do instalador: ${BLUE}1.0${WHITE}\n"
   printf "  ${YELLOW}IP da VPS: ${CYAN}${ip_atual}${WHITE}   ${YELLOW}Data: ${CYAN}$(date '+%d/%m/%Y %H:%M:%S')${WHITE}\n"
   printf "\n"
-  printf "  ${CYAN}Repositório:${WHITE}    ${BLUE}https://github.com/raphaelbat/wacalls-chat${WHITE}\n"
+  printf "  ${CYAN}Repositório:${WHITE}    ${BLUE}https://github.com/betoarts/Wacalls${WHITE}\n"
   printf "  ${CYAN}Originado de:${WHITE}   ${BLUE}https://github.com/JotaDev66/WaCalls${WHITE}\n"
   printf "  ${CYAN}Créditos originais:${WHITE} ${GREEN}JotaDev66${WHITE} • ${GREEN}jobasfernandes${WHITE} • ${GREEN}Canal Vem Fazer${WHITE} (${BLUE}https://www.youtube.com/@vemfazer${WHITE})\n\n"
 
@@ -1435,7 +1435,7 @@ atualizar_via_zip() {
 
 atualizar_via_git() {
   local repo branch tmpdir
-  printf "${WHITE}Repositório Git (ex: https://github.com/raphaelbat/wacalls-chat.git):${WHITE}\n"
+  printf "${WHITE}Repositório Git (ex: https://github.com/betoarts/Wacalls.git):${WHITE}\n"
   read -p "> " repo
   [ -n "${repo}" ] || { log_err "Repositório obrigatório."; return 1; }
   printf "${WHITE}Branch [main]:${WHITE}\n"
