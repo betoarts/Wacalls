@@ -293,10 +293,11 @@ export const ContactDetailsPanel = ({
                 displayName.slice(0, 1).toUpperCase()
               )}
             </div>
-            <SheetTitle className="mt-3 truncate text-center text-lg font-semibold">{displayName}</SheetTitle>
-            <SheetDescription className="flex items-center justify-center gap-2">
-              <Badge variant="outline" className={`border ${statusInfo.cls}`}>{statusInfo.label}</Badge>
-              {isGroup && <Badge variant="outline">Grupo</Badge>}
+            <SheetDescription asChild>
+              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Badge variant="outline" className={`border ${statusInfo.cls}`}>{statusInfo.label}</Badge>
+                {isGroup && <Badge variant="outline">Grupo</Badge>}
+              </div>
             </SheetDescription>
             <div className="mt-4 flex items-center justify-center gap-2">
               <Button size="sm" variant="outline" onClick={handleSync} disabled={syncing}>
