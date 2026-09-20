@@ -252,6 +252,7 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
         const boardsById = new Map(boards.map((b) => [b.id, b]));
         const columnCache = new Map<string, KanbanColumn[]>();
         const chips: KanbanChip[] = [];
+        const seenLabels = new Set<string>();
         for (const card of cards) {
           let cols = columnCache.get(card.boardId);
           if (!cols) {
@@ -263,10 +264,17 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
             }
             columnCache.set(card.boardId, cols);
           }
+          const col = cols.find((c) => c.id === card.columnId);
+          const board = boardsById.get(card.boardId);
+          const label = (col?.name || board?.name || "Kanban").trim().toLowerCase();
+          if (seenLabels.has(label)) {
+            continue;
+          }
+          seenLabels.add(label);
           chips.push({
             card,
-            board: boardsById.get(card.boardId),
-            column: cols.find((c) => c.id === card.columnId),
+            board,
+            column: col,
           });
         }
         if (!cancelled) setKanbanChips(chips);
@@ -854,36 +862,44 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
         <button
           type="button"
           onClick={() => setShowContactDetails(true)}
-          className="min-w-0 flex-1 text-left transition hover:opacity-80"
+          className="min-w-0 flex-1 overflow-hidden text-left transition hover:opacity-80"
           title="Ver dados do contato"
         >
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
             <span className="truncate text-sm font-semibold">{displayName}</span>
             {chatQueue && (
               <span
-                className="inline-flex max-w-[160px] shrink-0 items-center truncate rounded-full px-2 py-0.5 text-[10px] font-semibold leading-none"
+                className="inline-flex max-w-[130px] shrink-0 items-center truncate rounded-full px-2 py-0.5 text-[10px] font-semibold leading-none"
                 style={tagChipStyle(chatQueue.color)}
                 title={`Fila: ${chatQueue.name}`}
               >
                 {chatQueue.name}
               </span>
             )}
-            {kanbanChips.map((chip) => {
+            {kanbanChips.slice(0, 1).map((chip) => {
               const color = chip.column?.color || chip.board?.color || "#6366f1";
               const label = chip.column?.name || chip.board?.name || "Kanban";
               const full = `${chip.board?.name ?? "Kanban"} · ${chip.column?.name ?? ""} · ${chip.card.title}`;
               return (
                 <span
                   key={chip.card.id}
-                  className="inline-flex max-w-[180px] shrink-0 items-center gap-1 truncate rounded-full px-2 py-0.5 text-[10px] font-semibold leading-none"
+                  className="inline-flex max-w-[130px] shrink-0 items-center gap-1 truncate rounded-full px-2 py-0.5 text-[10px] font-semibold leading-none"
                   style={tagChipStyle(color)}
                   title={full}
                 >
-                  <KanbanSquare className="h-2.5 w-2.5" />
-                  {label}
+                  <KanbanSquare className="h-2.5 w-2.5 shrink-0" />
+                  <span className="truncate">{label}</span>
                 </span>
               );
             })}
+            {kanbanChips.length > 1 && (
+              <span
+                className="inline-flex shrink-0 items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground"
+                title={kanbanChips.map((c) => `${c.board?.name ?? "Kanban"} · ${c.column?.name ?? ""}`).join("\n")}
+              >
+                +{kanbanChips.length - 1}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1.5">
             <span className="truncate text-[11px] text-muted-foreground">
