@@ -392,22 +392,41 @@ func (s *Session) info() SessionInfo {
 	s.mu.Lock()
 	a := s.auth
 	avatar := s.avatarURL
+	name := s.name
+	ownerID := s.ownerID
+	mode := s.mode
+	cloudPhoneID := s.cloudPhoneID
+	cloudWABAID := s.cloudWABAID
+	cloudConfigured := s.cloudConfigured
+	color := s.color
+	isDefault := s.isDefault
+	allowGroups := s.allowGroups
+	token := s.integrationToken
+	queueID := s.queueID
+	redirectMin := s.redirectMinutes
+	flowID := s.flowID
+	chatFlowID := s.chatFlowID
+	greetingMsg := s.greetingMessage
+	completionMsg := s.completionMessage
+	outOfHoursMsg := s.outOfHoursMessage
+	surveyEnabled := s.surveyEnabled
+	surveyPrompt := s.surveyPrompt
 	s.mu.Unlock()
 	jid := ""
 	if id := s.client.Store.ID; id != nil {
 		jid = id.String()
 	}
 	return SessionInfo{
-		ID: s.id, Name: s.name, JID: jid, OwnerID: s.ownerID,
+		ID: s.id, Name: name, JID: jid, OwnerID: ownerID,
 		State: a.State, Paired: a.Paired || jid != "",
-		Mode: s.mode, CloudPhoneID: s.cloudPhoneID, CloudWABAID: s.cloudWABAID, CloudConfigured: s.cloudConfigured,
+		Mode: mode, CloudPhoneID: cloudPhoneID, CloudWABAID: cloudWABAID, CloudConfigured: cloudConfigured,
 		AvatarURL: avatar,
-		Color:     s.color, IsDefault: s.isDefault, AllowGroups: s.allowGroups,
-		IntegrationToken: s.integrationToken, QueueID: s.queueID,
-		RedirectMinutes: s.redirectMinutes, FlowID: s.flowID, ChatFlowID: s.chatFlowID,
-		GreetingMessage: s.greetingMessage, CompletionMessage: s.completionMessage,
-		OutOfHoursMessage: s.outOfHoursMessage,
-		SurveyEnabled:     s.surveyEnabled, SurveyPrompt: s.surveyPrompt,
+		Color:     color, IsDefault: isDefault, AllowGroups: allowGroups,
+		IntegrationToken: token, QueueID: queueID,
+		RedirectMinutes: redirectMin, FlowID: flowID, ChatFlowID: chatFlowID,
+		GreetingMessage: greetingMsg, CompletionMessage: completionMsg,
+		OutOfHoursMessage: outOfHoursMsg,
+		SurveyEnabled:     surveyEnabled, SurveyPrompt: surveyPrompt,
 	}
 }
 

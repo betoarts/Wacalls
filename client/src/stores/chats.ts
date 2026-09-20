@@ -3,6 +3,7 @@ import { eventStream, type BrokerEvent } from "@/lib/event-stream";
 import { listChats, listMessages, markChatRead as markChatReadAPI } from "@/services/chats";
 import type { ChatMessage, ChatSummary } from "@/types/chat";
 import { playNotificationSound } from "@/lib/notification-sound";
+import { isGroupJid } from "@/components/domain/chat/format";
 
 type State = {
   chatsBySession: Record<string, ChatSummary[]>;
@@ -354,12 +355,13 @@ const upsertMessage = (msg: ChatMessage) => {
     //  • mensagens em grupos
     // Silencia conversas 1:1 já em atendimento (status "open") e chats fechados.
     if (!msg.fromMe && !isActive) {
-      const isGroup = prev?.isGroup ?? msg.chatJid.endsWith("@g.us");
-      const effectiveStatus = prev?.status ?? "waiting";
+      const isGroup = prev?.isGroup ?? isGroupJid(msg.chatJid);
+      const effectiveStatus = prev?.status ?? (isGroup ? "group" : "waiting");
       if (isGroup || effectiveStatus === "waiting") {
         playNotificationSound();
       }
     }
+    const isGroupChat = prev?.isGroup ?? isGroupJid(msg.chatJid);
     const summary: ChatSummary = {
       ...(prev ?? {}),
       chatJid: msg.chatJid,
@@ -369,8 +371,8 @@ const upsertMessage = (msg: ChatMessage) => {
       lastFromMe: msg.fromMe,
       count: prev ? prev.count + 1 : 1,
       name: prev?.name,
-      isGroup: prev?.isGroup,
-      status: prev?.status ?? (msg.fromMe ? "open" : "waiting"),
+      isGroup: isGroupChat,
+      status: prev?.status ?? (isGroupChat ? "group" : (msg.fromMe ? "open" : "waiting")),
       assignedUserId: prev?.assignedUserId,
       unread,
       lastReadTs: prev?.lastReadTs,

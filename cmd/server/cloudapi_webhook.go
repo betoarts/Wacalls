@@ -117,6 +117,17 @@ func (s *server) handleCloudWebhookInbound(w http.ResponseWriter, r *http.Reques
 			kind = "unknown"
 		}
 		chatJID := m.FromWAID + "@s.whatsapp.net"
+		if isGroupChatJID(chatJID) {
+			if hasCloudSess {
+				cloudSess.mu.Lock()
+				allow := cloudSess.allowGroups
+				cloudSess.mu.Unlock()
+				if !allow {
+					s.log.Debug("cloud webhook inbound: group message dropped because AllowGroups is disabled", "session", sid, "chat", chatJID)
+					continue
+				}
+			}
+		}
 		mr := MessageRow{
 			ID:         m.ID,
 			SessionID:  sid,
