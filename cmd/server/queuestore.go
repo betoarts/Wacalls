@@ -90,20 +90,25 @@ func (s *queueStore) List(ctx context.Context, userID, tenantID string, isAdmin,
 		err  error
 	)
 	switch {
-	case isAdmin || superAdmin:
+	case superAdmin:
 		rows, err = s.db.QueryContext(ctx, `SELECT id, name, color, owner_id, created_at,
 			order_bot, close_ticket, rotation, rotation_interval, rotation_mode, auto_randomize, agent_id, greeting, distribution, max_load, last_agent_id
 			FROM queues
-			WHERE owner_id IN (SELECT id FROM users WHERE id = ? OR parent_id = ?)
-			ORDER BY created_at ASC`, tenantID, tenantID)
+			ORDER BY created_at ASC`)
+	case isAdmin:
+		rows, err = s.db.QueryContext(ctx, `SELECT id, name, color, owner_id, created_at,
+			order_bot, close_ticket, rotation, rotation_interval, rotation_mode, auto_randomize, agent_id, greeting, distribution, max_load, last_agent_id
+			FROM queues
+			WHERE owner_id = '' OR owner_id = ? OR owner_id IN (SELECT id FROM users WHERE id = ? OR parent_id = ?)
+			ORDER BY created_at ASC`, tenantID, tenantID, tenantID)
 	default:
 		rows, err = s.db.QueryContext(ctx, `SELECT q.id, q.name, q.color, q.owner_id, q.created_at,
 			q.order_bot, q.close_ticket, q.rotation, q.rotation_interval, q.rotation_mode, q.auto_randomize, q.agent_id, q.greeting, q.distribution, q.max_load, q.last_agent_id
 			FROM queues q
 			INNER JOIN user_queues uq ON uq.queue_id = q.id
 			WHERE uq.user_id = ?
-			  AND q.owner_id IN (SELECT id FROM users WHERE id = ? OR parent_id = ?)
-			ORDER BY q.created_at ASC`, userID, tenantID, tenantID)
+			  AND (q.owner_id = '' OR q.owner_id = ? OR q.owner_id IN (SELECT id FROM users WHERE id = ? OR parent_id = ?))
+			ORDER BY q.created_at ASC`, userID, tenantID, tenantID, tenantID)
 	}
 	if err != nil {
 		return nil, err

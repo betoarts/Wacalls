@@ -147,6 +147,9 @@ func (s *server) canManageQueue(r *http.Request, id string) bool {
 	if err != nil {
 		return false
 	}
+	if row.OwnerID == "" && u.IsAdmin() {
+		return true
+	}
 	// Allow when the queue belongs to the caller's tenant. owner_id is
 	// either the tenant root itself or any sub-user inside that tenant.
 	if row.OwnerID == u.TenantID() {
