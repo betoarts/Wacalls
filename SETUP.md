@@ -1,128 +1,148 @@
-# Setup local (Windows / Linux / macOS)
+# 🚀 Guia de Setup Local (Windows / Linux / macOS)
 
-> 💡 No Windows, existe também o **instalador local** (R$ 39,90/mês): instala como serviço,
-> sobe com o computador e dispensa VPS e domínio. Fale com **54 991680204**.
-> O guia abaixo é o caminho manual, gratuito.
+> 💡 **Dica para Produção / VPS**: No Linux/Ubuntu, utilize o script automatizado [`instalador.sh`](instalador.sh) para configurar a aplicação, Nginx com SSL e serviço systemd em poucos minutos.
 
-Guia rápido pra rodar o projeto do zero. Você pode rodar tudo com **um único comando** (recomendado) ou em dois terminais separados.
+Este guia rápido explica como rodar o **WaCalls Chat** localmente em ambiente de desenvolvimento.
+
+---
 
 ## 1. Pré-requisitos
 
-Instale uma vez por máquina:
+Instale os pré-requisitos abaixo (uma única vez por máquina):
 
-- **Node.js 20 LTS** (inclui npm) — https://nodejs.org/
-- **Go 1.22+** — https://go.dev/dl/
-- **Git** — https://git-scm.com/
+- **Node.js 20 LTS ou superior** (inclui npm) — [nodejs.org](https://nodejs.org/)
+- **Go 1.22 ou superior** — [go.dev/dl](https://go.dev/dl/)
+- **Git** — [git-scm.com](https://git-scm.com/)
 
-Confirme:
+Confirme a instalação no seu terminal:
 
 ```bash
-node -v   # v20.x.x
-npm -v    # 10.x.x
+node -v   # v20.x.x ou superior
+npm -v    # 10.x.x ou superior
 go version
 git --version
 ```
 
-Se algum comando falhar, **feche e reabra o terminal** depois de instalar.
+> ⚠️ Se algum comando não for reconhecido, **feche e reabra o terminal** após a instalação.
 
-## 2. Clonar o projeto
+---
 
-```bash
-git clone <URL_DO_SEU_REPO> "projeto call"
-cd "projeto call"
-```
-
-## 3. Instalação (uma vez só)
-
-Na **raiz** do projeto:
+## 2. Clonar o Repositório
 
 ```bash
-npm install          # instala concurrently na raiz
-npm run setup        # instala deps do client + baixa módulos Go
+git clone https://github.com/betoarts/Wacalls.git
+cd Wacalls
 ```
 
-## 4. Rodar tudo com um comando
+---
 
-Na raiz:
+## 3. Instalação de Dependências
+
+Na raiz do projeto:
+
+```bash
+npm install          # Instala dependências da raiz (concurrently, etc.)
+npm run setup        # Instala dependências do frontend (client/) + baixa módulos Go
+```
+
+---
+
+## 4. Executando a Aplicação
+
+### Opção A: Usando o Script `dev.sh` (Linux / macOS / WSL) — Recomendado
+
+```bash
+chmod +x dev.sh
+./dev.sh
+```
+
+O script verifica automaticamente portas livres, instala dependências se necessário e sobe backend e frontend juntos com logs coloridos.
+
+---
+
+### Opção B: Via NPM (Windows / Linux / macOS)
 
 ```bash
 npm run dev
 ```
 
-Isso sobe **frontend (5173) + backend (8080) juntos**, com logs coloridos prefixados `[CLIENT]` e `[SERVER]`. `Ctrl+C` derruba os dois.
-
-Abra http://localhost:5173/ e faça login:
-
-| Campo | Valor |
-|-------|-------|
-| Email | `admin@equipechat.com` |
-| Senha | `adminpro` |
-
-> Troque a senha após o primeiro login.
+Isso inicia o **frontend (5173)** e o **backend Go (3001/8080)** simultaneamente. Para encerrar, pressione `Ctrl + C`.
 
 ---
 
-## Alternativa: dois terminais separados
+### Opção C: Dois Terminais Separados
 
-Se preferir ver os logs em janelas separadas:
+Se preferir visualizar os logs do backend e frontend em janelas separadas:
 
-### Terminal 1 — Frontend (porta 5173)
-
+#### Terminal 1 — Frontend (porta 5173)
 ```bash
 cd client
-npm install          # instala dependências (inclui Vite). Só na primeira vez ou após git pull.
-npm run dev          # sobe Vite em http://localhost:5173
+npm install          # Apenas na primeira vez ou após git pull
+npm run dev          # Sobe o Vite em http://localhost:5173
 ```
 
-Erro `vite: command not found`? Significa que `npm install` não rodou nessa pasta. Rode `npm install` dentro de `client/` antes do `npm run dev`.
-
-### Terminal 2 — Backend (porta 8080)
-
-Abra **outro** terminal, na **raiz** do projeto (não em `client/`):
+#### Terminal 2 — Backend Go (porta 3001 ou 8080)
+Na raiz do repositório:
 
 ```bash
-cd "projeto call"
-go mod download      # baixa dependências Go. Só na primeira vez.
-go run ./cmd/server  # sobe API em http://localhost:8080
+go mod download      # Baixa dependências Go (primeira vez)
+go run ./cmd/server  # Sobe o servidor HTTP na porta :8080 (ou :3001)
 ```
 
-Você verá:
+---
 
-```
-default admin created email=admin@equipechat.com
-HTTP server listening addr=:8080
-```
+## 🔑 Credenciais Padrão de Acesso
 
-## Atualizar depois de `git pull`
+Abra o navegador em **`http://localhost:5173`** e faça login com as credenciais padrão geradas na primeira execução:
 
-Sempre que puxar mudanças novas:
+| Campo | Valor Padrão | Valor Alternativo |
+|-------|--------------|-------------------|
+| **E-mail** | `wacalls@admin.com` | `admin@equipechat.com` |
+| **Senha** | `admin` | `adminpro` |
+
+> 🔒 **Recomendação de Segurança**: Altere a senha do administrador logo após o primeiro acesso na tela de **Usuários & Perfil**.
+
+---
+
+## 🔄 Atualizando o Projeto após `git pull`
+
+Sempre que atualizar seu código local com `git pull`:
 
 ```bash
+git pull origin main
 npm run setup
 npm run dev
 ```
 
-## Problemas comuns
+---
 
-| Erro | Causa | Solução |
-|------|-------|---------|
-| `vite: command not found` | Deps do client não instaladas | `npm run setup` na raiz |
-| `concurrently: command not found` | Faltou `npm install` na raiz | Rode `npm install` na raiz |
-| `[vite] http proxy error: /api/... ECONNREFUSED` | Backend não está rodando | Suba o Terminal 2 (`go run ./cmd/server`) |
-| `proxy target localhost:3001` | `vite.config.ts` apontando pra porta errada | Edite `client/vite.config.ts` → `target: "http://127.0.0.1:8080"` |
-| `go: command not found` | Go não instalado / PATH | Instale Go e reabra o terminal |
-| Login não aceita admin padrão | Banco já tinha usuários | Pare o backend, apague `wacalls.db*` e suba de novo |
+## 🛠️ Resolução de Problemas Comuns
 
-## Resetar o banco (zera usuários e sessões)
+| Erro / Sintoma | Causa Provável | Solução |
+|----------------|----------------|---------|
+| `vite: command not found` | Dependências do cliente não instaladas | Execute `npm run setup` na raiz do projeto |
+| `concurrently: command not found` | Faltou `npm install` na raiz | Execute `npm install` na raiz do projeto |
+| `[vite] http proxy error: ECONNREFUSED` | Backend Go não está rodando | Inicie o backend (`./dev.sh` ou `go run ./cmd/server`) |
+| `go: command not found` | Go não instalado ou fora do PATH | Instale o Go e reabra o terminal |
+| Login não aceita o usuário padrão | O banco SQLite já continha outros usuários | Pare o backend, remova `wacalls.db*` e suba novamente |
 
-Pare o backend e:
+---
 
+## 🧹 Resetando o Banco de Dados Local
+
+Caso queira zerar o banco de dados e recriar o usuário administrador padrão:
+
+1. Pare o backend.
+2. Execute o comando de remoção:
+
+**Windows (PowerShell):**
+```powershell
+Remove-Item wacalls.db, wacalls.db-shm, wacalls.db-wal -ErrorAction SilentlyContinue
+```
+
+**Linux / macOS:**
 ```bash
-# Windows PowerShell
-del wacalls.db, wacalls.db-shm, wacalls.db-wal
-
-# Linux / macOS
 rm -f wacalls.db wacalls.db-shm wacalls.db-wal
 ```
 
-Suba o backend de novo — o admin padrão é recriado automaticamente.
+3. Inicie a aplicação novamente — o banco será reconstruído e a conta `wacalls@admin.com` / `admin` recriada automaticamente.
