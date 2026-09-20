@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiDelete } from "@/lib/api";
+import { apiGet, apiPost, apiDelete, apiPut } from "@/lib/api";
 import { getClientId } from "@/lib/client-id";
 import { apiUrl } from "@/lib/api-base";
 import type { SessionInfo } from "@/types/session";
