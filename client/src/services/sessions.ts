@@ -11,19 +11,9 @@ export const createSession = (name: string, plan?: "free" | "paid") =>
 
 export const deleteSession = (id: string) => apiDelete(`/api/sessions/${id}`);
 
-const postVoid = async (path: string): Promise<void> => {
-  const r = await fetch(apiUrl(path), {
-    method: "POST",
-    headers: { "X-Client-Id": getClientId(), "Content-Type": "application/json" },
-    credentials: "include",
-    body: "{}",
-  });
-  if (!r.ok) throw new Error(`${path} ${r.status}`);
-};
+export const logoutSession = (id: string) => apiPost<void>(`/api/sessions/${id}/logout`, {});
 
-export const logoutSession = (id: string) => postVoid(`/api/sessions/${id}/logout`);
-
-export const pairSession = (id: string) => postVoid(`/api/sessions/${id}/pair`);
+export const pairSession = (id: string) => apiPost<void>(`/api/sessions/${id}/pair`, {});
 
 export type SessionUpdate = {
   name: string;
@@ -42,24 +32,11 @@ export type SessionUpdate = {
 };
 
 export const updateSession = async (id: string, body: SessionUpdate): Promise<void> => {
-  const r = await fetch(apiUrl(`/api/sessions/${id}`), {
-    method: "PUT",
-    headers: { "X-Client-Id": getClientId(), "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error(`update session ${r.status}`);
+  await apiPut<void>(`/api/sessions/${id}`, body);
 };
 
 export const regenerateToken = async (id: string): Promise<string> => {
-  const r = await fetch(apiUrl(`/api/sessions/${id}/token`), {
-    method: "POST",
-    headers: { "X-Client-Id": getClientId(), "Content-Type": "application/json" },
-    credentials: "include",
-    body: "{}",
-  });
-  if (!r.ok) throw new Error(`regen token ${r.status}`);
-  const j = (await r.json()) as { token: string };
+  const j = await apiPost<{ token: string }>(`/api/sessions/${id}/token`, {});
   return j.token;
 };
 

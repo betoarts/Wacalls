@@ -356,36 +356,25 @@ func (s *server) handleSessionUpdate(w http.ResponseWriter, r *http.Request) {
 			voiceFlowID = ""
 		}
 	}
-	// Pre-check: vincular um fluxo desabilitado é a causa #1 de URA/chatbot não
-	// disparar. Falhamos cedo com mensagem clara em vez de aceitar silenciosamente.
+	// Validação tolerante: se o fluxo informado não existir ou não for compatível,
+	// limpa a referência em vez de travar o salvamento de toda a conexão.
 	if fid := voiceFlowID; fid != "" && s.flows != nil {
 		f, ferr := s.flows.Get(r.Context(), fid)
 		if ferr != nil || f == nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "fluxo informado não existe"})
-			return
-		}
-		if flowKind(f) == "chat" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "selecione um fluxo de voz (URA) no campo de chamadas"})
-			return
-		}
-		if !f.Enabled {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "habilite o fluxo \"" + f.Name + "\" no FlowBuilder antes de vinculá-lo à conexão"})
-			return
+			voiceFlowID = ""
+		} else if flowKind(f) == "chat" {
+			if chatFlowID == "" {
+				chatFlowID = voiceFlowID
+			}
+			voiceFlowID = ""
 		}
 	}
 	if fid := chatFlowID; fid != "" && s.flows != nil {
 		f, ferr := s.flows.Get(r.Context(), fid)
 		if ferr != nil || f == nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "fluxo de conversa informado não existe"})
-			return
-		}
-		if flowKind(f) != "chat" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "selecione um fluxo de conversa (chatbot) no campo de mensagens"})
-			return
-		}
-		if !f.Enabled {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "habilite o fluxo \"" + f.Name + "\" no FlowBuilder antes de vinculá-lo à conexão"})
-			return
+			chatFlowID = ""
+		} else if flowKind(f) != "chat" {
+			chatFlowID = ""
 		}
 	}
 	if err := s.sessions.Update(r.Context(), sess.id, sessionUpdate{
