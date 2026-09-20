@@ -211,7 +211,7 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
       cancelled = true;
     };
   }, []);
-  const currentChatQueueId = activeChat?.queueId || sessionQueueId;
+  const currentChatQueueId = chat?.queueId || sessionQueueId;
   const chatQueue = useMemo(
     () => (currentChatQueueId ? queues.find((q) => q.id === currentChatQueueId) : undefined),
     [queues, currentChatQueueId],
