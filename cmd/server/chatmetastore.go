@@ -158,17 +158,18 @@ func (s *chatMetaStore) Upsert(ctx context.Context, m ChatMeta) error {
 	if m.IsGroup {
 		ig = 1
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO chats (session_id, chat_jid, name, is_group, status, assigned_user_id, updated_at, last_read_ts, avatar_url)
-		VALUES (?,?,?,?,?,?,?,?,?)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO chats (session_id, chat_jid, name, is_group, status, assigned_user_id, updated_at, last_read_ts, avatar_url, queue_id)
+		VALUES (?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(session_id, chat_jid) DO UPDATE SET
 			name = CASE WHEN excluded.name <> '' THEN excluded.name ELSE chats.name END,
 			is_group = excluded.is_group,
 			status = excluded.status,
 			assigned_user_id = excluded.assigned_user_id,
+			queue_id = CASE WHEN excluded.queue_id <> '' THEN excluded.queue_id ELSE chats.queue_id END,
 			updated_at = excluded.updated_at,
 			last_read_ts = CASE WHEN excluded.last_read_ts > chats.last_read_ts THEN excluded.last_read_ts ELSE chats.last_read_ts END,
 			avatar_url = CASE WHEN excluded.avatar_url <> '' THEN excluded.avatar_url ELSE chats.avatar_url END`,
-		m.SessionID, m.ChatJID, m.Name, ig, m.Status, m.AssignedUserID, m.UpdatedAt, m.LastReadTs, m.AvatarURL)
+		m.SessionID, m.ChatJID, m.Name, ig, m.Status, m.AssignedUserID, m.UpdatedAt, m.LastReadTs, m.AvatarURL, m.QueueID)
 	return err
 }
 

@@ -97,6 +97,7 @@ export const setChatStatus = (
   jid: string,
   status: "open" | "waiting" | "closed",
   assignedUserId?: string | null,
+  queueId?: string | null,
 ) => {
   useChats.setState((s) => {
     const list = s.chatsBySession[sessionId];
@@ -108,6 +109,7 @@ export const setChatStatus = (
       ...next[idx],
       status,
       assignedUserId: assignedUserId === undefined ? next[idx].assignedUserId : assignedUserId ?? undefined,
+      queueId: queueId === undefined ? next[idx].queueId : queueId ?? undefined,
     };
     return { chatsBySession: { ...s.chatsBySession, [sessionId]: next } };
   });
@@ -134,6 +136,7 @@ export const fetchChats = async (sessionId: string) => {
           ...c,
           avatarUrl: c.avatarUrl || old.avatarUrl,
           name: c.name || old.name,
+          queueId: c.queueId || old.queueId,
         };
       });
       return { chatsBySession: { ...s.chatsBySession, [sessionId]: merged } };
@@ -374,6 +377,7 @@ const upsertMessage = (msg: ChatMessage) => {
       isGroup: isGroupChat,
       status: prev?.status ?? (isGroupChat ? "group" : (msg.fromMe ? "open" : "waiting")),
       assignedUserId: prev?.assignedUserId,
+      queueId: prev?.queueId,
       unread,
       lastReadTs: prev?.lastReadTs,
       avatarUrl: prev?.avatarUrl,
@@ -413,6 +417,7 @@ const upsertMeta = (meta: import("@/types/chat").ChatMeta) => {
         isGroup: meta.isGroup,
         status: meta.status,
         assignedUserId: meta.assignedUserId,
+        queueId: meta.queueId !== undefined ? meta.queueId : list[idx].queueId,
         lastReadTs: meta.lastReadTs ?? list[idx].lastReadTs,
         avatarUrl: meta.avatarUrl || list[idx].avatarUrl,
         unread:
@@ -432,6 +437,7 @@ const upsertMeta = (meta: import("@/types/chat").ChatMeta) => {
         isGroup: meta.isGroup,
         status: meta.status,
         assignedUserId: meta.assignedUserId,
+        queueId: meta.queueId,
         unread: 0,
         lastReadTs: meta.lastReadTs,
         avatarUrl: meta.avatarUrl,

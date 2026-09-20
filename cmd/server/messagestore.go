@@ -39,6 +39,7 @@ type ChatSummary struct {
 	IsGroup        bool   `json:"isGroup,omitempty"`
 	Status         string `json:"status,omitempty"`
 	AssignedUserID string `json:"assignedUserId,omitempty"`
+	QueueID        string `json:"queueId,omitempty"`
 	Unread         int    `json:"unread"`
 	LastReadTs     int64  `json:"lastReadTs"`
 	AvatarURL      string `json:"avatarUrl,omitempty"`

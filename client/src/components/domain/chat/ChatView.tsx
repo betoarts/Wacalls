@@ -211,9 +211,10 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
       cancelled = true;
     };
   }, []);
-  const sessionQueue = useMemo(
-    () => (sessionQueueId ? queues.find((q) => q.id === sessionQueueId) : undefined),
-    [queues, sessionQueueId],
+  const currentChatQueueId = activeChat?.queueId || sessionQueueId;
+  const chatQueue = useMemo(
+    () => (currentChatQueueId ? queues.find((q) => q.id === currentChatQueueId) : undefined),
+    [queues, currentChatQueueId],
   );
 
   useEffect(() => {
@@ -858,13 +859,13 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
         >
           <div className="flex items-center gap-1.5">
             <span className="truncate text-sm font-semibold">{displayName}</span>
-            {sessionQueue && (
+            {chatQueue && (
               <span
                 className="inline-flex max-w-[160px] shrink-0 items-center truncate rounded-full px-2 py-0.5 text-[10px] font-semibold leading-none"
-                style={tagChipStyle(sessionQueue.color)}
-                title={`Fila da conexão: ${sessionQueue.name}`}
+                style={tagChipStyle(chatQueue.color)}
+                title={`Fila: ${chatQueue.name}`}
               >
-                {sessionQueue.name}
+                {chatQueue.name}
               </span>
             )}
             {kanbanChips.map((chip) => {

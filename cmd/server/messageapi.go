@@ -248,6 +248,10 @@ func (s *Session) upsertChatMeta(row MessageRow, pushName string, isGroup bool) 
 		status = ChatStatusWaiting
 		assigned = ""
 	}
+	queueID := existing.QueueID
+	if queueID == "" {
+		queueID = s.queueID
+	}
 	m := ChatMeta{
 		SessionID:      s.id,
 		ChatJID:        row.ChatJID,
@@ -255,6 +259,7 @@ func (s *Session) upsertChatMeta(row MessageRow, pushName string, isGroup bool) 
 		IsGroup:        isGroup,
 		Status:         status,
 		AssignedUserID: assigned,
+		QueueID:        queueID,
 		UpdatedAt:      time.Now().UnixMilli(),
 		AvatarURL:      existing.AvatarURL,
 	}
@@ -681,8 +686,12 @@ func (s *server) handleChatList(w http.ResponseWriter, r *http.Request) {
 				chats[i].IsGroup = m.IsGroup
 				chats[i].Status = m.Status
 				chats[i].AssignedUserID = m.AssignedUserID
+				chats[i].QueueID = m.QueueID
 				chats[i].LastReadTs = m.LastReadTs
 				chats[i].AvatarURL = m.AvatarURL
+			}
+			if chats[i].QueueID == "" {
+				chats[i].QueueID = sess.queueID
 			}
 			chats[i].Unread = unread[chats[i].ChatJID]
 			if chats[i].Status == "" {
@@ -859,6 +868,10 @@ func (s *server) markChatOpen(ctx context.Context, sess *Session, jid string, u 
 	}
 	now := time.Now().UnixMilli()
 	name := cur.Name
+	queueID := cur.QueueID
+	if queueID == "" {
+		queueID = sess.queueID
+	}
 	m := ChatMeta{
 		SessionID:      sess.id,
 		ChatJID:        jid,
@@ -866,7 +879,9 @@ func (s *server) markChatOpen(ctx context.Context, sess *Session, jid string, u 
 		IsGroup:        false,
 		Status:         ChatStatusOpen,
 		AssignedUserID: u.ID,
+		QueueID:        queueID,
 		UpdatedAt:      now,
+		AvatarURL:      cur.AvatarURL,
 	}
 	if err := s.chatMeta.Upsert(ctx, m); err == nil {
 		s.broker.emitChatMeta(m)

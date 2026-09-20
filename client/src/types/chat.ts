@@ -46,6 +46,7 @@ export interface ChatSummary {
   isGroup?: boolean;
   status?: "waiting" | "open" | "closed" | "group";
   assignedUserId?: string;
+  queueId?: string;
   unread?: number;
   lastReadTs?: number;
   avatarUrl?: string;
@@ -58,6 +59,7 @@ export interface ChatMeta {
   isGroup: boolean;
   status: "waiting" | "open" | "closed" | "group";
   assignedUserId?: string;
+  queueId?: string;
   updatedAt: number;
   lastReadTs?: number;
   avatarUrl?: string;

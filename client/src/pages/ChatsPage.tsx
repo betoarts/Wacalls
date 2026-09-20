@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ArrowDownNarrowWide, ArrowUpNarrowWide, CheckCheck, Eye, Filter, ListFilter, MoreVertical, Plus, XCircle } from "lucide-react";
+import { ArrowDownNarrowWide, ArrowUpNarrowWide, CheckCheck, Eye, Filter, Layers, ListFilter, MoreVertical, Plus, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { AppShell } from "@/components/layout/AppShell";
@@ -30,6 +30,8 @@ import {
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { closeChat } from "@/services/chats";
 import { NewChatDialog } from "@/components/domain/chat/NewChatDialog";
+import { listQueues } from "@/services/queues";
+import type { Queue } from "@/types/queue";
 
 type Tab = "open" | "waiting" | "group";
 
@@ -107,6 +109,24 @@ export const ChatsPage = () => {
   const [confirmCloseAll, setConfirmCloseAll] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
+  const [queues, setQueues] = useState<Queue[]>([]);
+  const [selectedQueueId, setSelectedQueueId] = useState<string>("all");
+
+  const sessionQueueId = useSessions((s) => s.sessions.find((x) => x.id === sessionId)?.queueId);
+
+  useEffect(() => {
+    let cancelled = false;
+    listQueues()
+      .then((qs) => {
+        if (!cancelled) setQueues(qs);
+      })
+      .catch(() => {
+        if (!cancelled) setQueues([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (sessionId) void fetchChats(sessionId);
@@ -161,6 +181,14 @@ export const ChatsPage = () => {
     const counts = { open: 0, waiting: 0, group: 0 };
     for (const c of chats) {
       const isGroup = c.isGroup || isGroupJid(c.chatJid);
+      if (selectedQueueId !== "all") {
+        const chatQueue = c.queueId || sessionQueueId || "";
+        if (selectedQueueId === "none") {
+          if (chatQueue !== "") continue;
+        } else {
+          if (chatQueue !== selectedQueueId) continue;
+        }
+      }
       // Count tickets (conversations) per tab, not unread messages — the unread
       // badge already lives inside each ticket card. Grupos "fechados" não
       // devem contar no badge, senão o número persiste após "Finalizar".
@@ -173,14 +201,14 @@ export const ChatsPage = () => {
         counts.open += 1;
     }
     return counts;
-  }, [chats, me?.id]);
+  }, [chats, me?.id, selectedQueueId, sessionQueueId]);
 
   const pairedSessions = useMemo(() => sessions.filter((s) => s.paired), [sessions]);
 
   // Conversations targeted by "Fechar todos da aba" — respects current filters.
   const targetedForBulk = useMemo(
-    () => filterChats(chats, tab, me?.id ?? null, unreadOnly),
-    [chats, tab, me?.id, unreadOnly],
+    () => filterChats(chats, tab, me?.id ?? null, unreadOnly, selectedQueueId, sessionQueueId),
+    [chats, tab, me?.id, unreadOnly, selectedQueueId, sessionQueueId],
   );
 
   const TAB_LABEL: Record<Tab, string> = {
@@ -250,6 +278,45 @@ export const ChatsPage = () => {
                   </option>
                 ))}
               </select>
+            </div>
+          )}
+          {queues.length > 0 && (
+            <div className="border-b bg-muted/20 px-2.5 py-1.5">
+              <div className="flex items-center gap-2">
+                <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                  <Layers className="h-3.5 w-3.5 text-primary" />
+                  Fila:
+                </span>
+                <select
+                  aria-label="Filtrar por fila"
+                  className="h-8 flex-1 truncate rounded-md border bg-background px-2 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  value={selectedQueueId}
+                  onChange={(e) => setSelectedQueueId(e.target.value)}
+                >
+                  <option value="all">Todas as filas ({chats.length})</option>
+                  {queues.map((q) => {
+                    const count = chats.filter((c) => (c.queueId || sessionQueueId) === q.id).length;
+                    return (
+                      <option key={q.id} value={q.id}>
+                        {q.name} ({count})
+                      </option>
+                    );
+                  })}
+                  <option value="none">
+                    Sem fila ({chats.filter((c) => !(c.queueId || sessionQueueId)).length})
+                  </option>
+                </select>
+                {selectedQueueId !== "all" && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedQueueId("all")}
+                    className="shrink-0 text-[10px] text-primary hover:underline"
+                    title="Limpar filtro de fila"
+                  >
+                    Limpar
+                  </button>
+                )}
+              </div>
             </div>
           )}
           <div className="flex items-stretch border-b text-xs font-medium">
@@ -328,19 +395,24 @@ export const ChatsPage = () => {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          {(unreadOnly || sort === "asc") && (
+          {(unreadOnly || sort === "asc" || selectedQueueId !== "all") && (
             <div className="flex items-center gap-2 border-b bg-muted/30 px-3 py-1.5 text-[11px] text-muted-foreground">
               <ListFilter className="h-3 w-3" />
               <span className="truncate">
                 {unreadOnly ? t("pages.chats.filterUnreadHint") : ""}
                 {unreadOnly && sort === "asc" ? " · " : ""}
                 {sort === "asc" ? t("pages.chats.filterOldestHint") : ""}
+                {(unreadOnly || sort === "asc") && selectedQueueId !== "all" ? " · " : ""}
+                {selectedQueueId !== "all"
+                  ? `Fila: ${selectedQueueId === "none" ? "Sem fila" : queues.find((q) => q.id === selectedQueueId)?.name ?? selectedQueueId}`
+                  : ""}
               </span>
               <button
                 type="button"
                 onClick={() => {
                   setUnreadOnly(false);
                   setSort("desc");
+                  setSelectedQueueId("all");
                 }}
                 className="ml-auto text-[10px] uppercase tracking-wider text-primary hover:underline"
               >
@@ -355,6 +427,9 @@ export const ChatsPage = () => {
             myId={me?.id ?? null}
             unreadOnly={unreadOnly}
             sort={sort}
+            selectedQueueId={selectedQueueId}
+            sessionQueueId={sessionQueueId}
+            queues={queues}
             onSelect={(jid) => setActiveChat(sessionId, jid)}
             onStatusChange={(status) => {
               if (status === "open") setTab("open");

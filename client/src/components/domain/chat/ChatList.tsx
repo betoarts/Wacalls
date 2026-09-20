@@ -13,6 +13,9 @@ import { useAuth } from "@/stores/auth";
 
 import { CloseReasonDialog } from "./CloseReasonDialog";
 
+import { tagChipStyle } from "@/lib/tag-color";
+import type { Queue } from "@/types/queue";
+
 const EMPTY: ChatSummary[] = [];
 
 export type ChatTab = "open" | "waiting" | "group";
@@ -24,6 +27,9 @@ interface Props {
   myId: string | null;
   unreadOnly?: boolean;
   sort?: "desc" | "asc";
+  selectedQueueId?: string;
+  sessionQueueId?: string;
+  queues?: Queue[];
   onSelect: (jid: string) => void;
   onStatusChange?: (status: "open" | "waiting" | "closed") => void;
 }
@@ -35,6 +41,8 @@ export const filterChats = (
   tab: ChatTab,
   myId: string | null,
   unreadOnly = false,
+  selectedQueueId = "all",
+  sessionQueueId?: string,
 ): ChatSummary[] =>
   chats.filter((c) => {
     const isGroup = c.isGroup || isGroupJid(c.chatJid);
@@ -53,10 +61,30 @@ export const filterChats = (
       }
     }
     if (unreadOnly && (c.unread ?? 0) <= 0) return false;
+    if (selectedQueueId && selectedQueueId !== "all") {
+      const chatQueue = c.queueId || sessionQueueId || "";
+      if (selectedQueueId === "none") {
+        if (chatQueue !== "") return false;
+      } else {
+        if (chatQueue !== selectedQueueId) return false;
+      }
+    }
     return true;
   });
 
-export const ChatList = ({ sessionId, activeJid, tab, myId, unreadOnly, sort = "desc", onSelect, onStatusChange }: Props) => {
+export const ChatList = ({
+  sessionId,
+  activeJid,
+  tab,
+  myId,
+  unreadOnly,
+  sort = "desc",
+  selectedQueueId = "all",
+  sessionQueueId,
+  queues = [],
+  onSelect,
+  onStatusChange,
+}: Props) => {
   const { t } = useTranslation();
   const chats = useChats((s) => s.chatsBySession[sessionId] ?? EMPTY);
   const loading = useChats((s) => s.loadingChats[sessionId] ?? false);
@@ -64,11 +92,11 @@ export const ChatList = ({ sessionId, activeJid, tab, myId, unreadOnly, sort = "
   const [transferFor, setTransferFor] = useState<ChatSummary | null>(null);
   const [closeFor, setCloseFor] = useState<ChatSummary | null>(null);
   const filtered = useMemo(() => {
-    const list = filterChats(chats, tab, myId, unreadOnly);
+    const list = filterChats(chats, tab, myId, unreadOnly, selectedQueueId, sessionQueueId);
     return [...list].sort((a, b) =>
       sort === "asc" ? (a.lastTs ?? 0) - (b.lastTs ?? 0) : (b.lastTs ?? 0) - (a.lastTs ?? 0),
     );
-  }, [chats, tab, myId, unreadOnly, sort]);
+  }, [chats, tab, myId, unreadOnly, selectedQueueId, sessionQueueId, sort]);
 
   if (loading && filtered.length === 0) {
     return <div className="p-4 text-sm text-muted-foreground">{t("chat.loadingChats", { defaultValue: "Carregando conversas…" })}</div>;
@@ -91,6 +119,8 @@ export const ChatList = ({ sessionId, activeJid, tab, myId, unreadOnly, sort = "
             chat={c}
             sessionId={sessionId}
             sessionName={sessionName}
+            queues={queues}
+            sessionQueueId={sessionQueueId}
             active={c.chatJid === activeJid}
             tab={tab}
             onClick={() => onSelect(c.chatJid)}
@@ -140,6 +170,8 @@ interface RowProps {
   chat: ChatSummary;
   sessionId: string;
   sessionName: string;
+  queues?: Queue[];
+  sessionQueueId?: string;
   active: boolean;
   tab: ChatTab;
   onClick: () => void;
@@ -148,12 +180,26 @@ interface RowProps {
   onStatusChange?: (status: "open" | "waiting" | "closed") => void;
 }
 
-const ChatRow = ({ chat, sessionId, sessionName, active, tab, onClick, onTransfer, onRequestClose, onStatusChange }: RowProps) => {
+const ChatRow = ({
+  chat,
+  sessionId,
+  sessionName,
+  queues = [],
+  sessionQueueId,
+  active,
+  tab,
+  onClick,
+  onTransfer,
+  onRequestClose,
+  onStatusChange,
+}: RowProps) => {
   const { t } = useTranslation();
   const name = chat.name && chat.name.trim() !== "" ? chat.name : formatPeer(chat.chatJid);
   const unread = chat.unread ?? 0;
   const isGroup = chat.isGroup || isGroupJid(chat.chatJid);
   const me = useAuth((s) => s.user);
+  const chatQueueId = chat.queueId || sessionQueueId || "";
+  const queue = chatQueueId ? queues.find((q) => q.id === chatQueueId) : undefined;
   
   const [busy, setBusy] = useState<null | "assign" | "close" | "requeue" | "transfer">(null);
   const run = async (kind: typeof busy, fn: () => Promise<void>) => {
@@ -282,6 +328,16 @@ const ChatRow = ({ chat, sessionId, sessionName, active, tab, onClick, onTransfe
 
           <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
             <span>{formatRelative(chat.lastTs)}</span>
+            {queue && (
+              <span
+                className="inline-flex max-w-[130px] items-center gap-1 truncate rounded-full px-2 py-0.5 text-[10px] font-medium leading-none"
+                style={tagChipStyle(queue.color)}
+                title={`Fila: ${queue.name}`}
+              >
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: queue.color }} />
+                <span className="truncate">{queue.name}</span>
+              </span>
+            )}
           </div>
 
           <div className="mt-1 flex items-end justify-between gap-2">
