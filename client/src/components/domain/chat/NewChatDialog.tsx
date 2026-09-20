@@ -9,6 +9,7 @@ import { fetchChats, setActiveChat } from "@/stores/chats";
 import { assignChatTo, listOperators, type OperatorRef } from "@/services/chats";
 import { listQueues } from "@/services/queues";
 import type { Queue } from "@/types/queue";
+import { useAuth } from "@/stores/auth";
 
 interface Props {
   open: boolean;
@@ -28,6 +29,7 @@ interface PendingTarget {
 const onlyDigits = (s: string) => s.replace(/\D+/g, "");
 
 export const NewChatDialog = ({ open, onOpenChange, sessionId, onOpened }: Props) => {
+  const me = useAuth((s) => s.user);
   const [mode, setMode] = useState<Mode>("search");
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
@@ -49,8 +51,10 @@ export const NewChatDialog = ({ open, onOpenChange, sessionId, onOpened }: Props
       setMode("search");
       setAssignUserId("");
       setAssignQueueId("");
+    } else {
+      setAssignUserId(me?.id ?? "");
     }
-  }, [open]);
+  }, [open, me?.id]);
 
   useEffect(() => {
     if (!open) return;
