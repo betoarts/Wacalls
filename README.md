@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.jpg" alt="WaCalls Chat Banner" width="100%" style="border-radius: 10px;">
+</p>
+
 # 📞 WaCalls Chat
 
 > **Plataforma completa de Atendimento Multicanal, Telefonia VoIP via WebRTC, Automação de WhatsApp, Construtor Visual de Fluxos (Flow Builder), Kanban CRM e Inteligência Artificial.**
