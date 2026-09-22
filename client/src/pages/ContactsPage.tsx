@@ -12,6 +12,10 @@ import {
   Upload,
   X,
   Copy,
+  DownloadCloud,
+  RefreshCw,
+  Smartphone,
+  CheckCircle2,
 } from "lucide-react";
 
 import { toast } from "sonner";
@@ -25,6 +29,7 @@ import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -41,6 +46,7 @@ import {
   createContact,
   updateContact,
   deleteContact,
+  importContacts,
   type ContactRow,
 } from "@/services/contacts";
 import { useSessions, ensureSessionsWired } from "@/stores/sessions";
@@ -95,10 +101,15 @@ export default function ContactsPage() {
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [kind, setKind] = useState<KindFilter>("");
+  const [selectedSessionId, setSelectedSessionId] = useState<string>("");
 
   const [openCreate, setOpenCreate] = useState(false);
   const [form, setForm] = useState({ sessionId: "", phone: "", name: "" });
   const [saving, setSaving] = useState(false);
+
+  const [openSync, setOpenSync] = useState(false);
+  const [syncSessionId, setSyncSessionId] = useState<string>("");
+  const [syncing, setSyncing] = useState(false);
 
   const [editing, setEditing] = useState<ContactRow | null>(null);
   const [editName, setEditName] = useState("");
@@ -109,7 +120,6 @@ export default function ContactsPage() {
   const editFileRef = useRef<HTMLInputElement | null>(null);
   const [toDelete, setToDelete] = useState<ContactRow | null>(null);
 
-
   useEffect(() => {
     ensureSessionsWired();
   }, []);
@@ -118,7 +128,12 @@ export default function ContactsPage() {
     try {
       setError(null);
       setLoading(true);
-      const res = await listContacts({ q, kind, limit: 200 });
+      const res = await listContacts({
+        q,
+        kind,
+        sessionId: selectedSessionId || undefined,
+        limit: 200,
+      });
       setContacts(res.contacts ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("pages.contacts.errLoad", { defaultValue: "Erro ao carregar" }));
@@ -131,7 +146,35 @@ export default function ContactsPage() {
     const t = setTimeout(load, 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, kind]);
+  }, [q, kind, selectedSessionId]);
+
+  const handleImportContacts = async (sid?: string) => {
+    const targetSid = sid || syncSessionId || selectedSessionId || sessions[0]?.id;
+    if (!targetSid) {
+      toast.error("Selecione uma conexão para sincronizar contatos");
+      return;
+    }
+    setSyncing(true);
+    try {
+      const res = await importContacts(targetSid);
+      const targetName = sessions.find((s) => s.id === targetSid)?.name || "WhatsApp";
+      if (res.imported > 0 || res.updated > 0) {
+        toast.success(
+          `${res.total} contatos processados (${res.imported} novos, ${res.updated} atualizados) da conexão "${targetName}"!`
+        );
+      } else if (res.message) {
+        toast.info(res.message);
+      } else {
+        toast.info(`Nenhum novo contato encontrado para importar na conexão "${targetName}".`);
+      }
+      setOpenSync(false);
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao puxar contatos do WhatsApp");
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const handleCreate = async () => {
     if (!form.sessionId || !form.phone || !form.name) return;
@@ -331,11 +374,38 @@ export default function ContactsPage() {
                 users: stats.users,
                 groups: stats.groups,
               })}
+              {selectedSessionId && (
+                <span className="ml-1 text-primary font-medium">
+                  (na conexão {sessions.find((s) => s.id === selectedSessionId)?.name || selectedSessionId})
+                </span>
+              )}
             </p>
           </div>
-          <Button onClick={() => setOpenCreate(true)}>
-            <Plus className="h-4 w-4" /> {t("pages.contacts.new", { defaultValue: "Novo contato" })}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSyncSessionId(selectedSessionId || sessions[0]?.id || "");
+                setOpenSync(true);
+              }}
+              className="gap-1.5"
+            >
+              <DownloadCloud className="h-4 w-4 text-primary" />
+              {t("pages.contacts.syncBtn", { defaultValue: "Puxar do WhatsApp" })}
+            </Button>
+            <Button
+              onClick={() => {
+                setForm({
+                  sessionId: selectedSessionId || sessions[0]?.id || "",
+                  phone: "",
+                  name: "",
+                });
+                setOpenCreate(true);
+              }}
+            >
+              <Plus className="h-4 w-4" /> {t("pages.contacts.new", { defaultValue: "Novo contato" })}
+            </Button>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -348,8 +418,34 @@ export default function ContactsPage() {
               onChange={(e) => setQ(e.target.value)}
             />
           </div>
+
+          <Select
+            value={selectedSessionId || "all"}
+            onValueChange={(v) => setSelectedSessionId(v === "all" ? "" : v)}
+          >
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="Todas as conexões" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">
+                <span className="font-medium">Todas as conexões</span>
+              </SelectItem>
+              {sessions.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="h-2 w-2 rounded-full shrink-0"
+                      style={{ backgroundColor: s.color || "#57adf8" }}
+                    />
+                    <span className="truncate">{s.name || s.id}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           <Select value={kind || "all"} onValueChange={(v) => setKind(v === "all" ? "" : (v as KindFilter))}>
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger className="w-[150px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -476,6 +572,116 @@ export default function ContactsPage() {
           </div>
         )}
       </div>
+
+      {/* Sync / Import from WhatsApp */}
+      <Dialog open={openSync} onOpenChange={setOpenSync}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-3">
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/15 text-primary">
+                <DownloadCloud className="h-5 w-5" />
+              </span>
+              <div>
+                <DialogTitle>Puxar contatos do WhatsApp</DialogTitle>
+                <DialogDescription className="text-xs">
+                  Importa a lista de contatos e grupos salvos no WhatsApp do número selecionado.
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Selecione a conexão de WhatsApp</Label>
+              <Select
+                value={syncSessionId || sessions[0]?.id || ""}
+                onValueChange={(v) => setSyncSessionId(v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione uma conexão" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sessions.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: s.color || "#57adf8" }}
+                        />
+                        <span className="font-medium">{s.name || s.id}</span>
+                        <span className="text-xs text-muted-foreground font-mono">
+                          {s.jid ? `(${s.jid.split("@")[0]})` : "(Aguardando pareamento)"}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {(() => {
+              const activeSess = sessions.find(
+                (s) => s.id === (syncSessionId || sessions[0]?.id)
+              );
+              if (!activeSess) return null;
+              const isOnline = activeSess.state === "connected" || activeSess.paired;
+
+              return (
+                <div className="rounded-lg border bg-muted/40 p-3 text-xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Status da conexão:</span>
+                    <span
+                      className={`inline-flex items-center gap-1.5 font-medium ${
+                        isOnline ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"
+                      }`}
+                    >
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                          isOnline ? "bg-emerald-500 shadow-xs shadow-emerald-500/50" : "bg-amber-500"
+                        }`}
+                      />
+                      {isOnline ? "Conectado" : "Desconectado / Aguardando"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Número:</span>
+                    <span className="font-mono text-foreground">
+                      {activeSess.jid ? fmtPhone(activeSess.jid.split("@")[0]) : "—"}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              💡 Os contatos e grupos importados ficarão disponíveis imediatamente em{" "}
+              <strong>Contatos</strong> e prontos para iniciar conversas ou chamadas no sistema.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpenSync(false)} disabled={syncing}>
+              {t("common.cancel", { defaultValue: "Cancelar" })}
+            </Button>
+            <Button
+              onClick={() => handleImportContacts()}
+              disabled={syncing || sessions.length === 0}
+            >
+              {syncing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Puxando contatos...
+                </>
+              ) : (
+                <>
+                  <DownloadCloud className="mr-2 h-4 w-4" />
+                  Iniciar importação
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Create */}
       <Dialog open={openCreate} onOpenChange={setOpenCreate}>

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"go.mau.fi/whatsmeow/types"
 )
 
 // contactsListCache stores the fully aggregated, unfiltered contact list per
@@ -84,6 +86,8 @@ func jidPhone(jid string) string {
 func (s *server) registerContactsRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/contacts", s.requireAuth(s.handleContactsList))
 	mux.HandleFunc("POST /api/contacts", s.requireAuth(s.handleContactCreate))
+	mux.HandleFunc("POST /api/contacts/import", s.requireAuth(s.handleContactsImport))
+	mux.HandleFunc("POST /api/sessions/{sid}/contacts/import", s.requireAuth(s.handleContactsImport))
 	mux.HandleFunc("PATCH /api/contacts/{sid}/{jid}", s.requireAuth(s.handleContactUpdate))
 	mux.HandleFunc("DELETE /api/contacts/{sid}/{jid}", s.requireAuth(s.handleContactDelete))
 }
@@ -96,6 +100,7 @@ func (s *server) handleContactsList(w http.ResponseWriter, r *http.Request) {
 	}
 	q := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
 	kind := r.URL.Query().Get("kind") // "" | "user" | "group"
+	sessionID := strings.TrimSpace(r.URL.Query().Get("sessionId"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
 		limit = 50
@@ -113,9 +118,12 @@ func (s *server) handleContactsList(w http.ResponseWriter, r *http.Request) {
 	// Filtering and pagination happen on the cached slice so the
 	// expensive per-session aggregation runs at most once per TTL.
 	filtered := rows
-	if kind != "" || q != "" {
+	if kind != "" || q != "" || sessionID != "" {
 		filtered = make([]contactRow, 0, len(rows))
 		for _, row := range rows {
+			if sessionID != "" && row.SessionID != sessionID {
+				continue
+			}
 			if kind == "user" && row.IsGroup {
 				continue
 			}
@@ -205,8 +213,11 @@ func (s *server) collectContactRows(ctx context.Context, u *currentUser) []conta
 				metas, _ = s.chatMeta.ListBySession(ctx, sinfo.ID)
 			}
 			unread, _ := s.messages.UnreadCounts(ctx, sinfo.ID)
-			local := make([]contactRow, 0, len(chats))
+			local := make([]contactRow, 0, len(chats)+len(metas))
+			seen := make(map[string]bool, len(chats)+len(metas))
+
 			for _, c := range chats {
+				seen[c.ChatJID] = true
 				meta := metas[c.ChatJID]
 				name := meta.Name
 				if name == "" {
@@ -233,6 +244,34 @@ func (s *server) collectContactRows(ctx context.Context, u *currentUser) []conta
 					Unread:      unread[c.ChatJID],
 				})
 			}
+
+			// Include contacts from chatMeta that don't have message rows yet
+			for jid, meta := range metas {
+				if seen[jid] {
+					continue
+				}
+				name := meta.Name
+				phone := jidPhone(jid)
+				if name == "" {
+					name = phone
+					if name == "" {
+						name = jid
+					}
+				}
+				local = append(local, contactRow{
+					SessionID:   sinfo.ID,
+					SessionName: sinfo.Name,
+					ChatJID:     jid,
+					Name:        name,
+					Phone:       phone,
+					AvatarURL:   meta.AvatarURL,
+					IsGroup:     meta.IsGroup || isGroupChatJID(jid),
+					LastTs:      meta.UpdatedAt,
+					LastMessage: "",
+					Unread:      0,
+				})
+			}
+
 			out[i] = bucket{rows: local}
 		}(i)
 	}
@@ -252,6 +291,194 @@ func (s *server) collectContactRows(ctx context.Context, u *currentUser) []conta
 		return rows[i].LastTs > rows[j].LastTs
 	})
 	return rows
+}
+
+// handleContactsImport pulls all address book contacts and joined groups
+// from WhatsApp for the specified session and registers them in chatMeta.
+func (s *server) handleContactsImport(w http.ResponseWriter, r *http.Request) {
+	u := currentUserFromReq(r)
+	if u == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	sessionID := strings.TrimSpace(r.PathValue("sid"))
+	if sessionID == "" {
+		var body struct {
+			SessionID string `json:"sessionId"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		sessionID = strings.TrimSpace(body.SessionID)
+	}
+	if sessionID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "sessionId é obrigatório"})
+		return
+	}
+	if !s.userCanAccessSession(u, sessionID) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "sem acesso à conexão"})
+		return
+	}
+	sess, ok := s.sessions.Get(sessionID)
+	if !ok || sess == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "conexão não encontrada"})
+		return
+	}
+	if sess.mode == "cloud" {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":       true,
+			"imported": 0,
+			"updated":  0,
+			"total":    0,
+			"message":  "Sessão em modo Cloud API oficial não possui lista de contatos do aparelho",
+		})
+		return
+	}
+	if sess.client == nil || sess.client.Store == nil || sess.client.Store.ID == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "WhatsApp não está conectado ou pareado"})
+		return
+	}
+
+	ctx := r.Context()
+	now := time.Now().UnixMilli()
+	imported := 0
+	updated := 0
+
+	// 1. WhatsApp contacts stored in local whatsmeow container
+	if sess.client.Store.Contacts != nil {
+		contacts, err := sess.client.Store.Contacts.GetAllContacts(ctx)
+		if err == nil && contacts != nil {
+			for jid, ci := range contacts {
+				jidStr := jid.ToNonAD().String()
+				if jid.Server != types.DefaultUserServer && jid.Server != types.HiddenUserServer {
+					continue
+				}
+				name := strings.TrimSpace(ci.FullName)
+				if name == "" {
+					name = strings.TrimSpace(ci.PushName)
+				}
+				if name == "" {
+					name = strings.TrimSpace(ci.BusinessName)
+				}
+				if name == "" {
+					name = strings.TrimSpace(ci.FirstName)
+				}
+				phone := jidPhone(jidStr)
+				if name == "" {
+					name = phone
+				}
+				if name == "" {
+					name = jidStr
+				}
+
+				existing, exists, _ := s.chatMeta.Get(ctx, sess.id, jidStr)
+				if !exists || existing.SessionID == "" {
+					meta := ChatMeta{
+						SessionID: sess.id,
+						ChatJID:   jidStr,
+						Name:      name,
+						IsGroup:   false,
+						Status:    ChatStatusWaiting,
+						UpdatedAt: now,
+					}
+					if err := s.chatMeta.Upsert(ctx, meta); err == nil {
+						imported++
+						s.broker.emitChatMeta(meta)
+					}
+				} else if existing.Name == "" || existing.Name == phone || existing.Name == jidStr {
+					if name != "" && name != phone && name != jidStr {
+						existing.Name = name
+						existing.UpdatedAt = now
+						if err := s.chatMeta.Upsert(ctx, existing); err == nil {
+							updated++
+							s.broker.emitChatMeta(existing)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Joined groups
+	if sess.client.IsConnected() {
+		groups, err := sess.client.GetJoinedGroups(ctx)
+		if err == nil && groups != nil {
+			for _, g := range groups {
+				if g == nil || g.JID.IsEmpty() {
+					continue
+				}
+				jidStr := g.JID.String()
+				name := strings.TrimSpace(g.Name)
+				if name == "" {
+					name = "Grupo " + jidStr
+				}
+				existing, exists, _ := s.chatMeta.Get(ctx, sess.id, jidStr)
+				if !exists || existing.SessionID == "" {
+					meta := ChatMeta{
+						SessionID: sess.id,
+						ChatJID:   jidStr,
+						Name:      name,
+						IsGroup:   true,
+						Status:    ChatStatusGroup,
+						UpdatedAt: now,
+					}
+					if err := s.chatMeta.Upsert(ctx, meta); err == nil {
+						imported++
+						s.broker.emitChatMeta(meta)
+					}
+				} else if existing.Name == "" || existing.Name == jidStr {
+					existing.Name = name
+					existing.IsGroup = true
+					existing.UpdatedAt = now
+					if err := s.chatMeta.Upsert(ctx, existing); err == nil {
+						updated++
+						s.broker.emitChatMeta(existing)
+					}
+				}
+			}
+		}
+	}
+
+	// Invalidate contacts cache
+	contactsCacheMu.Lock()
+	contactsCache = map[string]contactsCacheEntry{}
+	contactsCacheMu.Unlock()
+
+	// Best-effort background avatar & name enrichment
+	go func(targetSessionID string) {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		sTarget, ok := s.sessions.Get(targetSessionID)
+		if !ok || sTarget == nil || sTarget.client == nil || !sTarget.client.IsConnected() {
+			return
+		}
+		metas, _ := s.chatMeta.ListBySession(bgCtx, targetSessionID)
+		for _, m := range metas {
+			select {
+			case <-bgCtx.Done():
+				return
+			default:
+			}
+			if m.AvatarURL != "" && m.Name != "" && !strings.HasPrefix(m.Name, "+") {
+				continue
+			}
+			resolvedName, resolvedAvatar, err := resolveContactNameAndAvatar(bgCtx, sTarget, m.ChatJID, m.Name, m.AvatarURL)
+			if err == nil && (resolvedName != m.Name || resolvedAvatar != m.AvatarURL) {
+				m.Name = resolvedName
+				m.AvatarURL = resolvedAvatar
+				m.UpdatedAt = time.Now().UnixMilli()
+				if err := s.chatMeta.Upsert(bgCtx, m); err == nil {
+					s.broker.emitChatMeta(m)
+				}
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}(sess.id)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":       true,
+		"imported": imported,
+		"updated":  updated,
+		"total":    imported + updated,
+	})
 }
 
 // userCanAccessSession returns true when the authenticated user owns the

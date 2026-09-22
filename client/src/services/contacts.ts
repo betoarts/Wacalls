@@ -24,6 +24,7 @@ export interface ContactListResponse {
 export interface ListContactsOpts {
   q?: string;
   kind?: "" | "user" | "group";
+  sessionId?: string;
   limit?: number;
   offset?: number;
 }
@@ -34,6 +35,7 @@ export const listContacts = async (opts: ListContactsOpts = {}): Promise<Contact
   const qs = new URLSearchParams();
   if (opts.q) qs.set("q", opts.q);
   if (opts.kind) qs.set("kind", opts.kind);
+  if (opts.sessionId) qs.set("sessionId", opts.sessionId);
   qs.set("limit", String(opts.limit ?? 50));
   qs.set("offset", String(opts.offset ?? 0));
   const res = await fetch(apiUrl(`/api/contacts?${qs.toString()}`), { credentials: "include" });
@@ -140,4 +142,23 @@ export const deleteContact = async (sessionId: string, chatJid: string): Promise
     { method: "DELETE", credentials: "include", headers: headersMultipart() },
   );
   if (!res.ok && res.status !== 204) return parseError(res);
+};
+
+export interface ImportContactsResponse {
+  ok: boolean;
+  imported: number;
+  updated: number;
+  total: number;
+  message?: string;
+}
+
+export const importContacts = async (sessionId: string): Promise<ImportContactsResponse> => {
+  const res = await fetch(apiUrl(`/api/sessions/${encodeURIComponent(sessionId)}/contacts/import`), {
+    method: "POST",
+    credentials: "include",
+    headers: headersJSON(),
+    body: JSON.stringify({ sessionId }),
+  });
+  if (!res.ok) return parseError(res);
+  return (await res.json()) as ImportContactsResponse;
 };
