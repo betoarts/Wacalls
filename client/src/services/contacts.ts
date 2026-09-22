@@ -153,12 +153,20 @@ export interface ImportContactsResponse {
 }
 
 export const importContacts = async (sessionId: string): Promise<ImportContactsResponse> => {
-  const res = await fetch(apiUrl(`/api/sessions/${encodeURIComponent(sessionId)}/contacts/import`), {
+  let res = await fetch(apiUrl(`/api/sessions/${encodeURIComponent(sessionId)}/contacts/import`), {
     method: "POST",
     credentials: "include",
     headers: headersJSON(),
     body: JSON.stringify({ sessionId }),
   });
+  if (res.status === 404) {
+    res = await fetch(apiUrl("/api/contacts/import"), {
+      method: "POST",
+      credentials: "include",
+      headers: headersJSON(),
+      body: JSON.stringify({ sessionId }),
+    });
+  }
   if (!res.ok) return parseError(res);
   return (await res.json()) as ImportContactsResponse;
 };
