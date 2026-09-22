@@ -18,24 +18,15 @@ import (
 // desligue com WACALLS_WELCOME=off.
 const defaultWelcomeMessage = "✅ *WhatsApp conectado com sucesso!*\n" +
 	"\n" +
-	"Você está usando o *WaCalls*, distribuído pelo canal *Vem Fazer* " +
-	"(youtube.com/@vemfazer) em parceria com o *EquipeChat*.\n" +
+	"Esta mensagem foi enviada automaticamente para este numero assim que o " +
+	"pareamento com o WhatsApp foi concluido.\n" +
 	"\n" +
-	"💚 *O sistema é gratuito e open source* — pode usar à vontade.\n" +
+	"Se voce esta vendo isto, significa que a conexao funcionou e que voce pode " +
+	"comecar a usar o WhatsApp normalmente.\n" +
 	"\n" +
-	"💻 *O instalador local para Windows é o serviço pago: R$ 39,90/mês*\n" +
-	"Com ele o WaCalls roda no seu próprio computador e você *não paga VPS " +
-	"nem domínio* — economia que já cobre a mensalidade no primeiro mês. " +
-	"Instalação em poucos cliques, atualização e suporte inclusos.\n" +
-	"\n" +
-	"🤖 *Automação de WhatsApp sob medida*\n" +
-	"Fale com a gente: *81 99588-5670*\n" +
-	"\n" +
-	"⭐ *Precisa de mais recursos?*\n" +
-	"A versão completa — mais conexões, campanhas, chamadas e IA — está em " +
-	"*vozzap.com.br*\n" +
-	"\n" +
-	"_Mensagem automática, enviada uma única vez, quando este número foi conectado._"
+	"_Esta mensagem e apenas um aviso de boas-vindas. Nao e spam nem propaganda._\n"
+
+// welcomeEnabled devolve se a saudacao esta habilitada ou nao.
 
 // welcomeEnabled permite desligar a saudacao pelo .env.
 func welcomeEnabled() bool {
