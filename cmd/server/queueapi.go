@@ -10,6 +10,8 @@ func (s *server) registerQueueRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/queues", s.requireAdmin(s.handleQueueCreate))
 	mux.HandleFunc("PUT /api/queues/{id}", s.requireAdmin(s.handleQueueUpdate))
 	mux.HandleFunc("DELETE /api/queues/{id}", s.requireAdmin(s.handleQueueDelete))
+	mux.HandleFunc("GET /api/queues/{id}/sessions", s.requireAuth(s.handleQueueSessionsList))
+	mux.HandleFunc("PUT /api/queues/{id}/sessions", s.requireAdmin(s.handleQueueSessionsUpdate))
 }
 
 func (s *server) handleQueueList(w http.ResponseWriter, r *http.Request) {
@@ -130,6 +132,48 @@ func (s *server) handleQueueDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.queues.Delete(r.Context(), id); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	u := currentUserFromReq(r)
+	if u != nil && s.sessions != nil {
+		_ = s.sessions.SetQueueSessions(r.Context(), id, nil, u.TenantID(), u.IsSuperAdmin())
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) handleQueueSessionsList(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	u := currentUserFromReq(r)
+	if u == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	all := s.sessions.infosFor(u.ID, u.IsAdmin())
+	matched := make([]SessionInfo, 0)
+	for _, sess := range all {
+		if sess.QueueID == id {
+			matched = append(matched, sess)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": matched})
+}
+
+func (s *server) handleQueueSessionsUpdate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !s.canManageQueue(r, id) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such queue"})
+		return
+	}
+	var body struct {
+		SessionIDs []string `json:"sessionIds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid body"})
+		return
+	}
+	u := currentUserFromReq(r)
+	if err := s.sessions.SetQueueSessions(r.Context(), id, body.SessionIDs, u.TenantID(), u.IsSuperAdmin()); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

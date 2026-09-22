@@ -322,3 +322,8 @@ func (s *sessionStore) setFlowIDs(ctx context.Context, id, voiceFlowID, chatFlow
 	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET flow_id = ?, chat_flow_id = ? WHERE id = ?`, voiceFlowID, chatFlowID, id)
 	return err
 }
+
+func (s *sessionStore) setQueueID(ctx context.Context, id, queueID string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET queue_id = ? WHERE id = ?`, queueID, id)
+	return err
+}

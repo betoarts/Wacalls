@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Plus, Trash2, Pencil, Users2 } from "lucide-react";
+import { Loader2, Plus, Trash2, Pencil, Users2, Smartphone, Check } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { AppShell } from "@/components/layout/AppShell";
@@ -21,7 +21,9 @@ import {
   createQueue,
   updateQueue,
   deleteQueue,
+  setQueueSessions,
 } from "@/services/queues";
+import { useSessions, ensureSessionsWired, refreshSessions } from "@/stores/sessions";
 import type { Queue } from "@/types/queue";
 
 const DEFAULT_COLORS = [
@@ -35,6 +37,7 @@ type Editing = {
   greeting: string;
   distribution: string;
   maxLoad: number;
+  sessionIds: string[];
 };
 
 const emptyEditing = (): Editing => ({
@@ -44,11 +47,13 @@ const emptyEditing = (): Editing => ({
   greeting: "",
   distribution: "manual",
   maxLoad: 0,
+  sessionIds: [],
 });
 
 export default function QueuesPage() {
   const { t } = useTranslation();
   const [queues, setQueues] = useState<Queue[]>([]);
+  const sessions = useSessions((s) => s.sessions);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState<Editing | null>(null);
@@ -74,14 +79,29 @@ export default function QueuesPage() {
   };
 
   useEffect(() => {
+    ensureSessionsWired();
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const openEdit = (q: Queue) => {
+    const linkedIds = sessions.filter((s) => s.queueId === q.id).map((s) => s.id);
+    setModal({
+      queue: q,
+      name: q.name,
+      color: q.color,
+      greeting: q.greeting ?? "",
+      distribution: q.distribution || "manual",
+      maxLoad: q.maxLoad ?? 0,
+      sessionIds: linkedIds,
+    });
+  };
 
   const onSave = async () => {
     if (!modal || !modal.name.trim()) return;
     setSaving(true);
     try {
+      let targetQueueId = modal.queue?.id;
       if (modal.queue) {
         await updateQueue(modal.queue.id, modal.name.trim(), modal.color, {
           greeting: modal.greeting,
@@ -91,10 +111,8 @@ export default function QueuesPage() {
         toast.success(t("pages.queues.updatedToast", { defaultValue: "Fila atualizada" }));
       } else {
         const q = await createQueue(modal.name.trim(), modal.color);
-        if (modal.greeting.trim()) {
-          await updateQueue(q.id, modal.name.trim(), modal.color, { greeting: modal.greeting });
-        }
-        if (modal.distribution !== "manual" || modal.maxLoad > 0) {
+        targetQueueId = q.id;
+        if (modal.greeting.trim() || modal.distribution !== "manual" || modal.maxLoad > 0) {
           await updateQueue(q.id, modal.name.trim(), modal.color, {
             greeting: modal.greeting,
             distribution: modal.distribution,
@@ -103,6 +121,12 @@ export default function QueuesPage() {
         }
         toast.success(t("pages.queues.createdToast", { defaultValue: "Fila criada" }));
       }
+
+      if (targetQueueId) {
+        await setQueueSessions(targetQueueId, modal.sessionIds);
+        await refreshSessions();
+      }
+
       setModal(null);
       load();
     } catch (e) {
@@ -115,6 +139,7 @@ export default function QueuesPage() {
   const onDelete = async (q: Queue) => {
     try {
       await deleteQueue(q.id);
+      await refreshSessions();
       toast.success(t("pages.queues.removedToast", { defaultValue: "Fila removida" }));
       load();
     } catch (e) {
@@ -158,49 +183,84 @@ export default function QueuesPage() {
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {queues.map((q) => (
-              <div key={q.id} className="rounded-xl border bg-card p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="h-8 w-8 shrink-0 rounded-lg"
-                      style={{ backgroundColor: q.color }}
-                    />
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">{q.name}</p>
+            {queues.map((q) => {
+              const linkedSessions = sessions.filter((s) => s.queueId === q.id);
+
+              return (
+                <div key={q.id} className="rounded-xl border bg-card p-4 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="h-8 w-8 shrink-0 rounded-lg"
+                          style={{ backgroundColor: q.color }}
+                        />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{q.name}</p>
+                          <span className="text-[11px] text-muted-foreground">
+                            {DISTRIBUTIONS.find((d) => d.value === (q.distribution || "manual"))?.label}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => openEdit(q)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="text-destructive"
+                          onClick={() => setToDelete(q)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
 
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() =>
-                        setModal({
-                          queue: q,
-                          name: q.name,
-                          color: q.color,
-                          greeting: q.greeting ?? "",
-                          distribution: q.distribution || "manual",
-                          maxLoad: q.maxLoad ?? 0,
-                        })
-                      }
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="text-destructive"
-                      onClick={() => setToDelete(q)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div className="mt-3 pt-3 border-t">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
+                        <span className="flex items-center gap-1 font-medium">
+                          <Smartphone className="h-3.5 w-3.5 text-primary" />
+                          {t("pages.queues.linkedConnections", { defaultValue: "Conexões vinculadas" })}
+                        </span>
+                        <span className="text-[11px] font-semibold bg-muted px-1.5 py-0.2 rounded-full">
+                          {linkedSessions.length}
+                        </span>
+                      </div>
+                      {linkedSessions.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">
+                          {t("pages.queues.noLinkedConnections", { defaultValue: "Nenhuma conexão vinculada" })}
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {linkedSessions.map((s) => {
+                            const isOnline = s.state === "connected" || s.paired;
+                            return (
+                              <span
+                                key={s.id}
+                                className="inline-flex items-center gap-1.5 text-xs bg-muted/60 hover:bg-muted border px-2 py-0.5 rounded-md text-foreground transition"
+                                title={s.jid ? `${s.name} (${s.jid})` : s.name}
+                              >
+                                <span
+                                  className={`h-2 w-2 rounded-full shrink-0 ${
+                                    isOnline ? "bg-emerald-500 shadow-xs shadow-emerald-500/50" : "bg-zinc-400"
+                                  }`}
+                                />
+                                <span className="truncate max-w-[130px] font-medium">{s.name}</span>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -248,7 +308,101 @@ export default function QueuesPage() {
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2 border-t pt-4">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-semibold flex items-center gap-1.5">
+                    <Smartphone className="h-4 w-4 text-primary" />
+                    {t("pages.queues.linkedConnections", { defaultValue: "Conexões WhatsApp vinculadas" })}
+                  </Label>
+                  <span className="text-xs text-muted-foreground font-medium">
+                    {modal.sessionIds.length}{" "}
+                    {modal.sessionIds.length === 1 ? "selecionada" : "selecionadas"}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t("pages.queues.connectionsSelectHint", {
+                    defaultValue:
+                      "Selecione quais conexões direcionarão novos atendimentos diretamente para esta fila.",
+                  })}
+                </p>
+
+                {sessions.length === 0 ? (
+                  <div className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground bg-muted/30">
+                    Nenhuma conexão de WhatsApp cadastrada. Cadastre em Conexões.
+                  </div>
+                ) : (
+                  <div className="grid gap-2 max-h-48 overflow-y-auto pr-1">
+                    {sessions.map((sess) => {
+                      const isSelected = modal.sessionIds.includes(sess.id);
+                      const isOnline = sess.state === "connected" || sess.paired;
+                      const otherQueue =
+                        !isSelected && sess.queueId && sess.queueId !== modal.queue?.id
+                          ? queues.find((q) => q.id === sess.queueId)
+                          : null;
+
+                      return (
+                        <label
+                          key={sess.id}
+                          className={`flex items-center justify-between gap-3 p-2.5 rounded-lg border text-sm cursor-pointer transition select-none ${
+                            isSelected
+                              ? "border-primary bg-primary/5 shadow-xs"
+                              : "border-border hover:bg-muted/40"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                setModal({
+                                  ...modal,
+                                  sessionIds: isSelected
+                                    ? modal.sessionIds.filter((id) => id !== sess.id)
+                                    : [...modal.sessionIds, sess.id],
+                                });
+                              }}
+                              className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
+                            />
+                            <div
+                              className="h-3 w-3 rounded-full shrink-0"
+                              style={{ backgroundColor: sess.color || "#57adf8" }}
+                            />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-medium truncate">{sess.name}</span>
+                                <span
+                                  className={`inline-block h-1.5 w-1.5 rounded-full shrink-0 ${
+                                    isOnline ? "bg-emerald-500" : "bg-zinc-400"
+                                  }`}
+                                />
+                              </div>
+                              <div className="text-[11px] text-muted-foreground truncate">
+                                {sess.jid || "Aguardando pareamento"}
+                                {otherQueue && (
+                                  <span className="ml-1.5 text-amber-600 dark:text-amber-400 font-medium">
+                                    (atualmente em: {otherQueue.name})
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <span
+                            className={`text-[11px] px-2 py-0.5 rounded font-medium shrink-0 ${
+                              isSelected
+                                ? "bg-primary/15 text-primary"
+                                : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {isSelected ? "Vinculada" : "Não vinculada"}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 border-t pt-4">
                 <div className="space-y-2">
                   <Label>{t("pages.queues.distributionLabel", { defaultValue: "Distribuição automática" })}</Label>
                   <select

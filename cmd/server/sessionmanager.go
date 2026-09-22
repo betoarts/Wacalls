@@ -601,3 +601,61 @@ func (m *SessionManager) Update(ctx context.Context, id string, u sessionUpdate)
 	m.broker.emitSessionList(m.infos())
 	return nil
 }
+
+// SetQueueSessions sets or clears the queue_id for sessions in bulk.
+// Sessions in sessionIDs will have queue_id set to queueID.
+// Sessions not in sessionIDs that currently point to queueID will have queue_id cleared.
+func (m *SessionManager) SetQueueSessions(ctx context.Context, queueID string, sessionIDs []string, tenantID string, isSuperAdmin bool) error {
+	desired := make(map[string]bool, len(sessionIDs))
+	for _, sid := range sessionIDs {
+		desired[sid] = true
+	}
+
+	m.mu.Lock()
+	sessionsToUpdate := make([]struct {
+		s          *Session
+		newQueueID string
+	}, 0)
+
+	for _, sid := range m.order {
+		s, ok := m.sessions[sid]
+		if !ok {
+			continue
+		}
+		if !isSuperAdmin && s.ownerID != "" && s.ownerID != tenantID {
+			continue
+		}
+		s.mu.Lock()
+		curQueue := s.queueID
+		shouldBeLinked := desired[sid]
+		if shouldBeLinked && curQueue != queueID {
+			sessionsToUpdate = append(sessionsToUpdate, struct {
+				s          *Session
+				newQueueID string
+			}{s: s, newQueueID: queueID})
+		} else if !shouldBeLinked && curQueue == queueID {
+			sessionsToUpdate = append(sessionsToUpdate, struct {
+				s          *Session
+				newQueueID string
+			}{s: s, newQueueID: ""})
+		}
+		s.mu.Unlock()
+	}
+	m.mu.Unlock()
+
+	if len(sessionsToUpdate) == 0 {
+		return nil
+	}
+
+	for _, item := range sessionsToUpdate {
+		if err := m.store.setQueueID(ctx, item.s.id, item.newQueueID); err != nil {
+			m.log.Warn("failed to update session queue_id", "session", item.s.id, "queue", item.newQueueID, "err", err)
+		}
+		item.s.mu.Lock()
+		item.s.queueID = item.newQueueID
+		item.s.mu.Unlock()
+	}
+
+	m.broker.emitSessionList(m.infos())
+	return nil
+}

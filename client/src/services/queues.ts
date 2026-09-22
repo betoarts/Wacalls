@@ -38,3 +38,16 @@ export const updateQueue = async (
   });
   if (!r.ok) throw new Error(`update queue ${r.status}`);
 };
+
+export const getQueueSessions = (queueId: string) =>
+  apiGet<{ sessions: any[] }>(`/api/queues/${queueId}/sessions`).then((r) => r.sessions ?? []);
+
+export const setQueueSessions = async (queueId: string, sessionIds: string[]): Promise<void> => {
+  const r = await fetch(apiUrl(`/api/queues/${queueId}/sessions`), {
+    method: "PUT",
+    headers: { "X-Client-Id": getClientId(), "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ sessionIds }),
+  });
+  if (!r.ok) throw new Error(`set queue sessions ${r.status}`);
+};
