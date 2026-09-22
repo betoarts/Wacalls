@@ -86,7 +86,7 @@ func (s *server) registerCallControlRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/queues/{id}/hold-music", s.requireAuth(s.handleHoldMusicDeleteQueue))
 	mux.HandleFunc("GET /api/hold-music/queue/{id}", s.requireAuth(s.handleHoldMusicGetQueue))
 	mux.HandleFunc("POST /api/hold-music/queue/{id}", s.requireAuth(s.handleHoldMusicUploadQueue))
-	mux.HandleFunc("DELETE /api/queues/{id}/hold-music", s.requireAuth(s.handleHoldMusicDeleteQueue))
+	mux.HandleFunc("DELETE /api/hold-music/queue/{id}", s.requireAuth(s.handleHoldMusicDeleteQueue))
 	mux.HandleFunc("PUT /api/hold-music/queue/{id}/config", s.requireAuth(s.handleHoldMusicSettingsQueue))
 
 	// Aliases usados pelo frontend atual (/api/holdmusic/...).
