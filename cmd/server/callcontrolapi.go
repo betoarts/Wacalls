@@ -61,44 +61,44 @@ func (s *server) registerCallControlRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/sessions/{sid}/calls/{id}/hold", s.requireAuth(s.handleCallHold))
 	mux.HandleFunc("POST /api/sessions/{sid}/calls/{id}/hold/toggle", s.requireAuth(s.handleCallHold))
 	mux.HandleFunc("POST /api/sessions/{sid}/calls/{id}/unhold", s.requireAuth(s.handleCallUnhold))
-	mux.HandleFunc("GET  /api/sessions/{sid}/calls/{id}/hold", s.requireAuth(s.handleCallHoldGet))
+	mux.HandleFunc("GET /api/sessions/{sid}/calls/{id}/hold", s.requireAuth(s.handleCallHoldGet))
 
 	// Transferência de chamada (para outro atendente ou fila).
 	mux.HandleFunc("POST /api/sessions/{sid}/calls/{id}/transfer", s.requireAuth(s.handleCallTransfer))
 
 	// Música de espera — cobrimos as variantes comuns de URL para o mesmo
 	// handler, evitando 404 por divergência entre front e back.
-	mux.HandleFunc("GET  /api/hold-music", s.requireAuth(s.handleHoldMusicList))
+	mux.HandleFunc("GET /api/hold-music", s.requireAuth(s.handleHoldMusicList))
 	mux.HandleFunc("POST /api/hold-music", s.requireAuth(s.handleHoldMusicUploadGlobal))
 	mux.HandleFunc("POST /api/hold-music/upload", s.requireAuth(s.handleHoldMusicUploadGlobal))
-	mux.HandleFunc("PUT  /api/hold-music", s.requireAuth(s.handleHoldMusicSettingsGlobal))
-	mux.HandleFunc("PUT  /api/hold-music/settings", s.requireAuth(s.handleHoldMusicSettingsGlobal))
+	mux.HandleFunc("PUT /api/hold-music", s.requireAuth(s.handleHoldMusicSettingsGlobal))
+	mux.HandleFunc("PUT /api/hold-music/settings", s.requireAuth(s.handleHoldMusicSettingsGlobal))
 	mux.HandleFunc("DELETE /api/hold-music", s.requireAuth(s.handleHoldMusicDeleteGlobal))
-	mux.HandleFunc("GET    /api/hold-music/global", s.requireAuth(s.handleHoldMusicGetGlobal))
-	mux.HandleFunc("POST   /api/hold-music/global", s.requireAuth(s.handleHoldMusicUploadGlobal))
+	mux.HandleFunc("GET /api/hold-music/global", s.requireAuth(s.handleHoldMusicGetGlobal))
+	mux.HandleFunc("POST /api/hold-music/global", s.requireAuth(s.handleHoldMusicUploadGlobal))
 	mux.HandleFunc("DELETE /api/hold-music/global", s.requireAuth(s.handleHoldMusicDeleteGlobal))
-	mux.HandleFunc("PUT    /api/hold-music/global/config", s.requireAuth(s.handleHoldMusicSettingsGlobal))
+	mux.HandleFunc("PUT /api/hold-music/global/config", s.requireAuth(s.handleHoldMusicSettingsGlobal))
 
 	mux.HandleFunc("POST /api/queues/{id}/hold-music", s.requireAuth(s.handleHoldMusicUploadQueue))
 	mux.HandleFunc("POST /api/queues/{id}/hold-music/upload", s.requireAuth(s.handleHoldMusicUploadQueue))
-	mux.HandleFunc("PUT  /api/queues/{id}/hold-music", s.requireAuth(s.handleHoldMusicSettingsQueue))
-	mux.HandleFunc("PUT  /api/queues/{id}/hold-music/settings", s.requireAuth(s.handleHoldMusicSettingsQueue))
+	mux.HandleFunc("PUT /api/queues/{id}/hold-music", s.requireAuth(s.handleHoldMusicSettingsQueue))
+	mux.HandleFunc("PUT /api/queues/{id}/hold-music/settings", s.requireAuth(s.handleHoldMusicSettingsQueue))
 	mux.HandleFunc("DELETE /api/queues/{id}/hold-music", s.requireAuth(s.handleHoldMusicDeleteQueue))
-	mux.HandleFunc("GET    /api/hold-music/queue/{id}", s.requireAuth(s.handleHoldMusicGetQueue))
-	mux.HandleFunc("POST   /api/hold-music/queue/{id}", s.requireAuth(s.handleHoldMusicUploadQueue))
-	mux.HandleFunc("DELETE /api/hold-music/queue/{id}", s.requireAuth(s.handleHoldMusicDeleteQueue))
-	mux.HandleFunc("PUT    /api/hold-music/queue/{id}/config", s.requireAuth(s.handleHoldMusicSettingsQueue))
+	mux.HandleFunc("GET /api/hold-music/queue/{id}", s.requireAuth(s.handleHoldMusicGetQueue))
+	mux.HandleFunc("POST /api/hold-music/queue/{id}", s.requireAuth(s.handleHoldMusicUploadQueue))
+	mux.HandleFunc("DELETE /api/queues/{id}/hold-music", s.requireAuth(s.handleHoldMusicDeleteQueue))
+	mux.HandleFunc("PUT /api/hold-music/queue/{id}/config", s.requireAuth(s.handleHoldMusicSettingsQueue))
 
 	// Aliases usados pelo frontend atual (/api/holdmusic/...).
-	mux.HandleFunc("GET    /api/holdmusic/global", s.requireAuth(s.handleHoldMusicGetGlobal))
-	mux.HandleFunc("POST   /api/holdmusic/global", s.requireAuth(s.handleHoldMusicUploadGlobal))
+	mux.HandleFunc("GET /api/holdmusic/global", s.requireAuth(s.handleHoldMusicGetGlobal))
+	mux.HandleFunc("POST /api/holdmusic/global", s.requireAuth(s.handleHoldMusicUploadGlobal))
 	mux.HandleFunc("DELETE /api/holdmusic/global", s.requireAuth(s.handleHoldMusicDeleteGlobal))
-	mux.HandleFunc("PUT    /api/holdmusic/global/config", s.requireAuth(s.handleHoldMusicSettingsGlobal))
+	mux.HandleFunc("PUT /api/holdmusic/global/config", s.requireAuth(s.handleHoldMusicSettingsGlobal))
 
-	mux.HandleFunc("GET    /api/holdmusic/queue/{id}", s.requireAuth(s.handleHoldMusicGetQueue))
-	mux.HandleFunc("POST   /api/holdmusic/queue/{id}", s.requireAuth(s.handleHoldMusicUploadQueue))
+	mux.HandleFunc("GET /api/holdmusic/queue/{id}", s.requireAuth(s.handleHoldMusicGetQueue))
+	mux.HandleFunc("POST /api/holdmusic/queue/{id}", s.requireAuth(s.handleHoldMusicUploadQueue))
 	mux.HandleFunc("DELETE /api/holdmusic/queue/{id}", s.requireAuth(s.handleHoldMusicDeleteQueue))
-	mux.HandleFunc("PUT    /api/holdmusic/queue/{id}/config", s.requireAuth(s.handleHoldMusicSettingsQueue))
+	mux.HandleFunc("PUT /api/holdmusic/queue/{id}/config", s.requireAuth(s.handleHoldMusicSettingsQueue))
 
 	// Preview / streaming do arquivo. Aceita "global" ou "queue_{id}".
 	mux.HandleFunc("GET /api/holdmusic/file/{key}", s.handleHoldMusicFile)

@@ -16,13 +16,13 @@ import (
 func (s *server) registerCloudAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/sessions/{sid}/cloud/enable", s.requireAuth(s.handleCloudEnable))
 	mux.HandleFunc("POST /api/sessions/{sid}/cloud/disable", s.requireAuth(s.handleCloudDisable))
-	mux.HandleFunc("GET  /api/sessions/{sid}/cloud", s.requireAuth(s.handleCloudGet))
-	mux.HandleFunc("GET  /api/sessions/{sid}/cloud/templates", s.requireAuth(s.handleCloudTemplates))
+	mux.HandleFunc("GET /api/sessions/{sid}/cloud", s.requireAuth(s.handleCloudGet))
+	mux.HandleFunc("GET /api/sessions/{sid}/cloud/templates", s.requireAuth(s.handleCloudTemplates))
 	mux.HandleFunc("POST /api/sessions/{sid}/cloud/test", s.requireAuth(s.handleCloudTestSend))
 	mux.HandleFunc("POST /api/sessions/{sid}/cloud/send", s.requireAuth(s.handleCloudSend))
 	// Meta webhook (verify + inbound). Public: auth is via verify_token +
 	// X-Hub-Signature-256; never protect with requireAuth.
-	mux.HandleFunc("GET  /api/wa-official/webhook/{sid}", s.handleCloudWebhookVerify)
+	mux.HandleFunc("GET /api/wa-official/webhook/{sid}", s.handleCloudWebhookVerify)
 	mux.HandleFunc("POST /api/wa-official/webhook/{sid}", s.handleCloudWebhookInbound)
 }
 
