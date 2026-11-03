@@ -1,9 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { Smartphone } from "lucide-react";
+import { Loader2, RefreshCw, Smartphone } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useSessions } from "@/stores/sessions";
-import { pairSession } from "@/services/sessions";
+import { getSessionQR, pairSession } from "@/services/sessions";
 import { toast } from "sonner";
 
 type Props = {
@@ -23,16 +23,62 @@ export const QRDialog = ({ open, onOpenChange, sessionId, sessionName }: Props) 
     s.sessions.find((x) => x.id === sessionId)?.paired ?? false,
   );
 
-  // Auto-request a pairing as soon as the dialog opens.
-  useEffect(() => {
-    if (!open) return;
-    pairSession(sessionId).catch((e) => toast.error((e as Error).message));
-  }, [open, sessionId]);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Close the modal automatically once pairing succeeds.
+  // Solicita pareamento e busca o QR code ativo imediatamente (com fallback de polling)
   useEffect(() => {
-    if (open && paired) onOpenChange(false);
+    if (!open || paired) return;
+    let cancelled = false;
+
+    // Dispara a geracao ou conexao de pareamento
+    pairSession(sessionId).catch((e) => toast.error((e as Error).message));
+
+    // Busca o QR code caso ja esteja pronto
+    const fetchQR = async () => {
+      try {
+        const res = await getSessionQR(sessionId);
+        if (!cancelled && res?.qr) {
+          useSessions.setState((s) => ({ qrs: { ...s.qrs, [sessionId]: res.qr } }));
+        }
+      } catch {}
+    };
+
+    void fetchQR();
+    const interval = setInterval(() => {
+      if (!useSessions.getState().qrs[sessionId]) {
+        void fetchQR();
+      }
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [open, paired, sessionId]);
+
+  // Fecha o modal automaticamente quando o pareamento for concluido
+  useEffect(() => {
+    if (open && paired) {
+      toast.success("WhatsApp conectado com sucesso!");
+      onOpenChange(false);
+    }
   }, [open, paired, onOpenChange]);
+
+  const handleManualRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await pairSession(sessionId);
+      const res = await getSessionQR(sessionId);
+      if (res?.qr) {
+        useSessions.setState((s) => ({ qrs: { ...s.qrs, [sessionId]: res.qr } }));
+      }
+      toast.success("Solicitação enviada. Novo QR Code sendo gerado...");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setTimeout(() => setRefreshing(false), 1500);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -66,9 +112,20 @@ export const QRDialog = ({ open, onOpenChange, sessionId, sessionName }: Props) 
                 </div>
               )}
             </div>
-            <p className="mt-3 text-center text-xs text-muted-foreground">
-              O QR Code é atualizado automaticamente
-            </p>
+            <div className="mt-3 flex flex-col items-center gap-1.5">
+              <p className="text-center text-xs text-muted-foreground">
+                O QR Code é atualizado automaticamente
+              </p>
+              <button
+                type="button"
+                onClick={handleManualRefresh}
+                disabled={refreshing}
+                className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline disabled:opacity-50"
+              >
+                {refreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                Gerar novo QR Code
+              </button>
+            </div>
           </div>
         </div>
       </DialogContent>

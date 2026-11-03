@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
+	"time"
 
+	"go.mau.fi/whatsmeow"
+	waStore "go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	_ "modernc.org/sqlite"
@@ -77,10 +80,23 @@ func newServer(ctx context.Context, dbPath, staticDir string, maxCalls int, log 
 		return nil, err
 	}
 
-	waLogger := waLog.Noop
+	waStore.SetOSInfo("WaCalls Chat", [3]uint32{1, 0, 0})
+
+	waLogLevel := "WARN"
 	if log.Enabled(ctx, slog.LevelDebug) {
-		waLogger = waLog.Stdout("WA", "INFO", true)
+		waLogLevel = "INFO"
 	}
+	waLogger := waLog.Stdout("WA", waLogLevel, true)
+
+	// Sincroniza dinamicamente a versao mais recente do WhatsApp Web
+	go func() {
+		verCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if latestVer, err := whatsmeow.GetLatestVersion(verCtx, nil); err == nil && latestVer != nil {
+			waStore.SetWAVersion(*latestVer)
+			log.Info("versao do WhatsApp Web sincronizada", "version", latestVer.String())
+		}
+	}()
 
 	broker := NewBroker()
 	mgr := newSessionManager(ctx, container, broker, store, waLogger, log, maxCalls)

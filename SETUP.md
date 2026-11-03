@@ -1,6 +1,8 @@
 # 🚀 Guia de Setup Local (Windows / Linux / macOS)
 
-> 💡 **Dica para Produção / VPS**: No Linux/Ubuntu, utilize o script automatizado [`instalador.sh`](instalador.sh) para configurar a aplicação, Nginx com SSL e serviço systemd em poucos minutos.
+> 💡 **Instaladores Automatizados**:
+> - **Windows**: Utilize o instalador 1-clique [`instalador.bat`](instalador.bat) ou [`instalador.ps1`](instalador.ps1).
+> - **Linux / VPS**: No Linux/Ubuntu, utilize o script automatizado [`instalador.sh`](instalador.sh) para configurar a aplicação, Nginx com SSL e serviço systemd em poucos minutos.
 
 Este guia rápido explica como rodar o **WaCalls Chat** localmente em ambiente de desenvolvimento.
 
@@ -48,6 +50,21 @@ npm run setup        # Instala dependências do frontend (client/) + baixa módu
 ---
 
 ## 4. Executando a Aplicação
+
+### Opção Windows: Instalador 1-Clique (`instalador.bat`) — Mais Fácil
+
+No Windows, basta dar um duplo clique no arquivo [`instalador.bat`](instalador.bat) ou executar no terminal:
+```bat
+instalador.bat
+```
+Ele compilará frontend e backend automaticamente, criará atalhos na Área de Trabalho e gerará scripts de controle:
+- **`iniciar.bat`**: Inicia o servidor em segundo plano e abre o navegador automaticamente em `http://localhost:8080`.
+- **`parar.bat`**: Encerra os processos do servidor com segurança.
+- **`reiniciar.bat`**: Reinicia o servidor.
+- **`status.bat`**: Exibe se o servidor está ativo, consumo de memória e portas.
+- **`desinstalar.bat`**: Remove atalhos e tarefas de inicialização com o Windows.
+
+---
 
 ### Opção A: Usando o Script `dev.sh` (Linux / macOS / WSL) — Recomendado
 

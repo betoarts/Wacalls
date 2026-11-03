@@ -25,7 +25,13 @@ const pickActive = (sessions: SessionInfo[], current: string | null): string | n
 export const refreshSessions = async (): Promise<SessionInfo[]> => {
   try {
     const sessions = await listSessions();
-    useSessions.setState((s) => ({ sessions, activeId: pickActive(sessions, s.activeId) }));
+    useSessions.setState((s) => {
+      const qrs = { ...s.qrs };
+      for (const sess of sessions) {
+        if (sess.qr) qrs[sess.id] = sess.qr;
+      }
+      return { sessions, qrs, activeId: pickActive(sessions, s.activeId) };
+    });
     return sessions;
   } catch {
     return [];
@@ -44,6 +50,9 @@ export const ensureSessionsWired = (): void => {
         const ids = new Set(ev.sessions.map((x) => x.id));
         const qrs: Record<string, string> = {};
         for (const [id, qr] of Object.entries(s.qrs)) if (ids.has(id)) qrs[id] = qr;
+        for (const sess of ev.sessions) {
+          if (sess.qr) qrs[sess.id] = sess.qr;
+        }
         return { sessions: ev.sessions, qrs, activeId: pickActive(ev.sessions, s.activeId) };
       });
     } else if (ev.type === "session-qr") {

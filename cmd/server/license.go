@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -307,7 +308,8 @@ func diasParaVencer(d licenseData) int {
 	if d.ExpiraEm <= 0 {
 		return 1 << 30 // vitalícia
 	}
-	return int((d.ExpiraEm - time.Now().Unix()) / 86400)
+	diff := float64(d.ExpiraEm - time.Now().Unix())
+	return int(math.Round(diff / 86400.0))
 }
 
 // startLicenseWatcher renova a mensalidade em segundo plano. Roda a cada 12h e

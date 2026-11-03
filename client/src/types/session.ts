@@ -6,6 +6,7 @@ export type SessionInfo = {
   jid: string;
   state: SessionState;
   paired: boolean;
+  qr?: string;
   ownerId?: string;
   avatarUrl?: string;
   color?: string;

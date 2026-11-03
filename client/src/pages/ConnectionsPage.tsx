@@ -320,7 +320,11 @@ export const ConnectionsPage = () => {
         onOpenChange={setCreating}
         onCreated={(id) => {
           const found = useSessions.getState().sessions.find((x) => x.id === id);
-          if (found) setEditFor(found);
+          if (found) {
+            setQrFor(found);
+          } else {
+            setQrFor({ id, name: "WhatsApp", jid: "", state: "connecting", paired: false });
+          }
         }}
       />
       {qrFor && (

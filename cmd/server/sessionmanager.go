@@ -154,7 +154,16 @@ func (m *SessionManager) infosFor(userID string, isAdmin bool) []SessionInfo {
 }
 
 func (m *SessionManager) snapshotEvents(userID string, isAdmin bool) []any {
-	return []any{map[string]any{"type": "session-list", "sessions": m.infosFor(userID, isAdmin)}}
+	infos := m.infosFor(userID, isAdmin)
+	events := []any{map[string]any{"type": "session-list", "sessions": infos}}
+	for _, info := range infos {
+		if info.QR != "" && !info.Paired && info.State == "qr" {
+			events = append(events, map[string]any{
+				"type": "session-qr", "sessionId": info.ID, "qr": info.QR,
+			})
+		}
+	}
+	return events
 }
 
 // ownerOf returns the owner of a session, or "" if unknown.
@@ -525,11 +534,12 @@ func (m *SessionManager) Pair(id string) error {
 			return nil
 		}
 		s.setAuth(AuthSnapshot{State: "connecting", Paired: true})
-		if err := s.client.Connect(); err != nil {
-			s.log.Warn("reconnect existing paired session failed", "session", id, "err", err)
-			return err
+		if err := s.client.Connect(); err == nil {
+			return nil
 		}
-		return nil
+		s.log.Warn("reconexao de sessao existente falhou; resetando credenciais para gerar novo QR code", "session", id)
+		_ = m.container.DeleteDevice(m.appCtx, s.client.Store)
+		_ = m.store.setJID(m.appCtx, id, "")
 	}
 	s.replaceClient(whatsmeow.NewClient(m.container.NewDevice(), m.waLogger))
 	if err := s.startPairing(m.appCtx); err != nil {

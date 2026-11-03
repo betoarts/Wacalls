@@ -15,6 +15,9 @@ export const logoutSession = (id: string) => apiPost<void>(`/api/sessions/${id}/
 
 export const pairSession = (id: string) => apiPost<void>(`/api/sessions/${id}/pair`, {});
 
+export const getSessionQR = (id: string) =>
+  apiGet<{ qr: string; state: string; paired: boolean }>(`/api/sessions/${id}/qr`);
+
 export const restartSession = (id: string) => apiPost<void>(`/api/sessions/${id}/restart`, {});
 
 export type SessionUpdate = {

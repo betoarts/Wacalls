@@ -41,6 +41,7 @@ type SessionInfo struct {
 	JID               string `json:"jid"`
 	State             string `json:"state"`
 	Paired            bool   `json:"paired"`
+	QR                string `json:"qr,omitempty"`
 	Mode              string `json:"mode,omitempty"`
 	CloudPhoneID      string `json:"cloudPhoneId,omitempty"`
 	CloudWABAID       string `json:"cloudWabaId,omitempty"`

@@ -372,29 +372,49 @@ func (s *Session) startPairing(ctx context.Context) error {
 	if s.client.IsConnected() {
 		s.client.Disconnect()
 	}
+	// Se o dispositivo ja possuir um ID de usuario registrado, GetQRChannel
+	// falha com ErrQRStoreContainsID. Neste caso, criamos um dispositivo limpo.
+	if s.client.Store.ID != nil {
+		s.client.Disconnect()
+		_ = s.mgr.container.DeleteDevice(ctx, s.client.Store)
+		s.replaceClient(whatsmeow.NewClient(s.mgr.container.NewDevice(), s.mgr.waLogger))
+	}
 	qrChan, err := s.client.GetQRChannel(ctx)
 	if err != nil {
+		s.log.Error("falha ao obter canal de QR code do WhatsApp", "session", s.id, "err", err)
 		return err
 	}
 	if err := s.client.Connect(); err != nil {
+		s.log.Error("falha ao conectar cliente para pareamento WhatsApp", "session", s.id, "err", err)
 		return err
 	}
+	s.setAuth(AuthSnapshot{State: "connecting", Paired: false})
 	go func() {
 		for evt := range qrChan {
 			switch evt.Event {
 			case "code":
-				s.log.Info("scan the QR code to pair this session", "session", s.id)
+				s.log.Info("novo QR Code gerado para WhatsApp", "session", s.id)
 				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
 				s.setAuth(AuthSnapshot{State: "qr", QR: evt.Code})
 				s.mgr.broker.emitSessionQR(s.id, evt.Code)
 			case "success":
+				s.log.Info("WhatsApp pareado com sucesso!", "session", s.id)
 				if id := s.client.Store.ID; id != nil {
 					_ = s.mgr.store.setJID(s.mgr.appCtx, s.id, id.String())
 				}
 				s.setAuth(AuthSnapshot{State: "open", Paired: true})
 				go s.refreshSelfAvatar()
 			case "timeout":
+				s.log.Warn("tempo limite para leitura do QR Code expirou", "session", s.id)
 				s.setAuth(AuthSnapshot{State: "logged_out", Paired: false})
+			case "err-client-outdated":
+				s.log.Error("servidor do WhatsApp reportou versao do cliente desatualizada", "session", s.id)
+				s.setAuth(AuthSnapshot{State: "logged_out", Paired: false})
+			case "error":
+				s.log.Error("erro no pareamento do QR Code", "session", s.id, "err", evt.Error)
+				s.setAuth(AuthSnapshot{State: "logged_out", Paired: false})
+			default:
+				s.log.Warn("evento no canal de QR Code", "session", s.id, "event", evt.Event)
 			}
 		}
 	}()
@@ -440,6 +460,7 @@ func (s *Session) info() SessionInfo {
 	return SessionInfo{
 		ID: s.id, Name: name, JID: jid, OwnerID: ownerID,
 		State: a.State, Paired: a.Paired || jid != "",
+		QR: a.QR,
 		Mode: mode, CloudPhoneID: cloudPhoneID, CloudWABAID: cloudWABAID, CloudConfigured: cloudConfigured,
 		AvatarURL: avatar,
 		Color:     color, IsDefault: isDefault, AllowGroups: allowGroups,

@@ -5,8 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "vite",
-    "build": "(test -x node_modules/.bin/vite || npm install --no-audit --no-fund) && vite build",
-    "build:dev": "(test -x node_modules/.bin/vite || npm install --no-audit --no-fund) && vite build --mode development",
+    "build": "vite build",
+    "build:dev": "vite build --mode development",
     "preview": "vite preview"
   },
   "dependencies": {

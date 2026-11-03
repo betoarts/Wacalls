@@ -16,10 +16,30 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", ":8080", "HTTP listen address")
-	dbPath := flag.String("db", "wacalls.db", "SQLite session database path")
+	defaultAddr := ":8080"
+	if v := strings.TrimSpace(os.Getenv("WACALLS_ADDR")); v != "" {
+		defaultAddr = v
+	} else if v := strings.TrimSpace(os.Getenv("PORT")); v != "" {
+		if !strings.HasPrefix(v, ":") {
+			v = ":" + v
+		}
+		defaultAddr = v
+	}
+
+	defaultDB := "wacalls.db"
+	if v := strings.TrimSpace(os.Getenv("WACALLS_DB")); v != "" {
+		defaultDB = v
+	}
+
+	defaultDebug := false
+	if v := strings.TrimSpace(os.Getenv("WACALLS_DEBUG")); v == "true" || v == "1" {
+		defaultDebug = true
+	}
+
+	addr := flag.String("addr", defaultAddr, "HTTP listen address")
+	dbPath := flag.String("db", defaultDB, "SQLite session database path")
 	staticDir := flag.String("static", "", "static client directory (optional; auto-detect 'dist' or 'client/dist')")
-	debug := flag.Bool("debug", false, "verbose logging")
+	debug := flag.Bool("debug", defaultDebug, "verbose logging")
 	maxCalls := flag.Int("max-calls-per-session", 8, "max concurrent calls per session (0 = unlimited)")
 	seedAdminEmail := flag.String("seed-admin-email", "wacalls@admin.com", "default admin email created on first run (empty to disable)")
 	seedAdminPass := flag.String("seed-admin-password", "admin", "default admin password created on first run")

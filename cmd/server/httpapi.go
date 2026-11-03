@@ -31,6 +31,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{sid}/token", s.requireAuth(s.handleSessionRegenToken))
 	mux.HandleFunc("DELETE /api/sessions/{sid}", s.requireAuth(s.handleSessionDelete))
 	mux.HandleFunc("POST /api/sessions/{sid}/logout", s.requireAuth(s.handleSessionLogout))
+	mux.HandleFunc("GET /api/sessions/{sid}/qr", s.requireAuth(s.handleSessionGetQR))
 	mux.HandleFunc("POST /api/sessions/{sid}/pair", s.requireAuth(s.handleSessionPair))
 	mux.HandleFunc("POST /api/sessions/{sid}/restart", s.requireAuth(s.handleSessionRestart))
 	mux.HandleFunc("POST /api/sessions/{sid}/calls", s.requireAuth(s.handleStartCall))
@@ -430,6 +431,24 @@ func (s *server) handleSessionLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) handleSessionGetQR(w http.ResponseWriter, r *http.Request) {
+	sess := s.sessionByID(w, r, r.PathValue("sid"))
+	if sess == nil {
+		return
+	}
+	sess.mu.Lock()
+	qr := sess.auth.QR
+	state := sess.auth.State
+	paired := sess.auth.Paired
+	sess.mu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"qr":     qr,
+		"state":  state,
+		"paired": paired,
+	})
 }
 
 func (s *server) handleSessionPair(w http.ResponseWriter, r *http.Request) {

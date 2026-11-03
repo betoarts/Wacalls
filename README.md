@@ -125,6 +125,13 @@ A aplicação é dividida em:
 │   └── wa/                     # Wrapper do cliente WhatsApp whatsmeow
 │
 ├── media/                      # Armazenamento de áudios, gravações e mídias
+├── instalador.bat              # Instalador 1-clique para Windows (Batch launcher)
+├── instalador.ps1              # Instalador e gerenciador completo para Windows (PowerShell)
+├── iniciar.bat                 # Inicia o servidor WaCalls no Windows e abre o navegador
+├── parar.bat                   # Encerra o servidor WaCalls no Windows
+├── reiniciar.bat               # Reinicia o servidor WaCalls no Windows
+├── status.bat                  # Exibe o status e consumo de memória do servidor
+├── desinstalar.bat             # Desinstala atalhos e inicialização com o Windows
 ├── dev.sh                      # Script completo de desenvolvimento e build
 ├── instalador.sh               # Script de instalação automatizada para Linux/VPS
 ├── go.mod / go.sum             # Dependências do backend Go
@@ -146,6 +153,24 @@ Antes de iniciar, certifique-se de possuir em seu ambiente:
 ---
 
 ## ⚡ Instalação e Execução Rápida
+
+### Opção Windows: Instalador 1-Clique (`instalador.bat` / `instalador.ps1`)
+
+No Windows, utilize o instalador automatizado com menu interativo, verificação de dependências, compilação completa e geração de atalhos:
+
+```bat
+# Dê um duplo clique no arquivo instalador.bat ou execute no terminal:
+instalador.bat
+```
+
+Scripts utilitários inclusos para o Windows:
+- **`iniciar.bat`**: Inicia o servidor e abre o painel no navegador automaticamente (`http://localhost:8080`).
+- **`parar.bat`**: Encerra os processos do WaCalls de forma segura.
+- **`reiniciar.bat`**: Reinicia o servidor.
+- **`status.bat`**: Exibe o status do processo, memória utilizada e portas ativas.
+- **`desinstalar.bat`**: Remove atalhos e tarefas de inicialização automática.
+
+---
 
 ### Opção 1: Script de Desenvolvimento (`dev.sh`) - Recomendado
 
