@@ -586,7 +586,7 @@ banner() {
   printf "\n"
   printf "  ${CYAN}Créditos:${WHITE} ${GREEN}JotaDev66${WHITE} • ${GREEN}jobasfernandes${WHITE} • ${GREEN}Canal Humberto Neto${WHITE}\n"
   printf "  ${CYAN}Repositório:${WHITE} ${BLUE}https://github.com/JotaDev66/WaCalls${WHITE}\n"
-  printf "  ${CYAN}YouTube:   ${WHITE} ${BLUE}https://www.youtube.com/@vemfazer${WHITE}\n\n"
+  printf "  ${CYAN}YouTube:   ${WHITE} ${BLUE}https://www.youtube.com/#${WHITE}\n\n"
 
 }
 

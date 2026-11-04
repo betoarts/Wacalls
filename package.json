@@ -9,6 +9,7 @@
     "dev:server": "go run ./cmd/server",
     "build": "npm --prefix client install && npm --prefix client run build",
     "build:dev": "npm --prefix client install && npm --prefix client run build:dev",
+    "build:installer": "cmd /c gerar-instalador.bat",
     "start": "go run ./cmd/server"
   },
   "devDependencies": {

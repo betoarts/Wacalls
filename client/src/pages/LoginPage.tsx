@@ -214,7 +214,7 @@ export const LoginPage = () => {
           <p className="mt-4 text-center text-xs text-muted-foreground">
             {t("pages.login.sponsoredBy", { defaultValue: "Patrocinado pelo canal" })}{" "}
             <a
-              href="https://www.youtube.com/@vemfazer"
+              href="https://www.youtube.com/"
               target="_blank"
               rel="noopener noreferrer"
               className="font-medium text-primary hover:underline"

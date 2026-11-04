@@ -54,3 +54,6 @@ licenca.json
 .env.*
 !.env.example
 
+
+/dist-installer/
+!.env.default
