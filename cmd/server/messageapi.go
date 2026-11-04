@@ -162,18 +162,28 @@ func mediaExtForMime(mt string) string {
 	if mt == "" {
 		return ""
 	}
-	if exts, err := mime.ExtensionsByType(mt); err == nil && len(exts) > 0 {
-		return exts[0]
-	}
 	switch mt {
-	case "audio/ogg", "audio/ogg; codecs=opus":
+	case "audio/ogg", "audio/opus":
 		return ".ogg"
+	case "audio/mpeg", "audio/mp3":
+		return ".mp3"
+	case "audio/wav", "audio/x-wav":
+		return ".wav"
+	case "audio/webm":
+		return ".webm"
+	case "audio/mp4", "audio/x-m4a":
+		return ".m4a"
 	case "image/webp":
 		return ".webp"
+	case "image/jpeg":
+		return ".jpg"
+	case "image/png":
+		return ".png"
 	case "video/mp4":
 		return ".mp4"
-	case "audio/mpeg":
-		return ".mp3"
+	}
+	if exts, err := mime.ExtensionsByType(mt); err == nil && len(exts) > 0 {
+		return exts[0]
 	}
 	return ""
 }

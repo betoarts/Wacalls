@@ -114,7 +114,78 @@ func (t *transcriber) postRaw(ctx context.Context, mime string, data []byte) (st
 	return t.do(req)
 }
 
+// sanitizeAudioUpload ensures the filename and mime type sent to OpenAI / Groq
+// comply with their strict whitelist of supported extensions:
+// [flac, mp3, mp4, mpeg, mpga, m4a, ogg, opus, wav, webm].
+func sanitizeAudioUpload(name, mimeType string, data []byte) (string, string) {
+	ext := strings.ToLower(filepath.Ext(name))
+	base := strings.TrimSuffix(name, filepath.Ext(name))
+	if base == "" {
+		base = "audio"
+	}
+	cleanMime := strings.TrimSpace(strings.SplitN(mimeType, ";", 2)[0])
+
+	switch ext {
+	case ".ogg", ".opus", ".mp3", ".wav", ".m4a", ".mp4", ".mpeg", ".mpga", ".webm", ".flac":
+		if cleanMime == "" {
+			cleanMime = guessAudioMime(name)
+		}
+		return name, cleanMime
+	case ".oga":
+		return base + ".ogg", "audio/ogg"
+	case ".m4v", ".mp4v":
+		return base + ".mp4", "audio/mp4"
+	case ".weba":
+		return base + ".webm", "audio/webm"
+	case ".mp2", ".mpa":
+		return base + ".mp3", "audio/mpeg"
+	case ".aac":
+		return base + ".m4a", "audio/mp4"
+	}
+
+	if len(data) >= 4 {
+		if bytes.HasPrefix(data, []byte("OggS")) {
+			return base + ".ogg", "audio/ogg"
+		}
+		if bytes.HasPrefix(data, []byte("RIFF")) && len(data) >= 12 && string(data[8:12]) == "WAVE" {
+			return base + ".wav", "audio/wav"
+		}
+		if bytes.HasPrefix(data, []byte("fLaC")) {
+			return base + ".flac", "audio/flac"
+		}
+		if bytes.HasPrefix(data, []byte("\x1a\x45\xdf\xa3")) {
+			return base + ".webm", "audio/webm"
+		}
+		if bytes.HasPrefix(data, []byte("ID3")) || (len(data) >= 2 && data[0] == 0xff && (data[1]&0xe0) == 0xe0) {
+			return base + ".mp3", "audio/mpeg"
+		}
+		limit := len(data)
+		if limit > 32 {
+			limit = 32
+		}
+		if bytes.Contains(data[:limit], []byte("ftyp")) {
+			return base + ".mp4", "audio/mp4"
+		}
+	}
+
+	switch {
+	case strings.Contains(cleanMime, "ogg") || strings.Contains(cleanMime, "opus"):
+		return base + ".ogg", "audio/ogg"
+	case strings.Contains(cleanMime, "mpeg") || strings.Contains(cleanMime, "mp3"):
+		return base + ".mp3", "audio/mpeg"
+	case strings.Contains(cleanMime, "wav"):
+		return base + ".wav", "audio/wav"
+	case strings.Contains(cleanMime, "webm"):
+		return base + ".webm", "audio/webm"
+	case strings.Contains(cleanMime, "mp4") || strings.Contains(cleanMime, "m4a"):
+		return base + ".m4a", "audio/mp4"
+	}
+
+	return base + ".ogg", "audio/ogg"
+}
+
 func (t *transcriber) postMultipart(ctx context.Context, name, mime string, data []byte) (string, error) {
+	name, mime = sanitizeAudioUpload(name, mime, data)
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	h := make(map[string][]string)
@@ -150,6 +221,9 @@ func (t *transcriber) postMultipart(ctx context.Context, name, mime string, data
 }
 
 func (t *transcriber) do(req *http.Request) (string, error) {
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", "WaCalls/1.0")
+	}
 	resp, err := t.client.Do(req)
 	if err != nil {
 		return "", err
