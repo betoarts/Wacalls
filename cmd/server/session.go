@@ -52,17 +52,21 @@ type Session struct {
 	cloudPhoneID      string
 	cloudWABAID       string
 	cloudConfigured   bool
+
+	historyWaitersMu sync.Mutex
+	historyWaiters   map[string][]chan []*MessageRow
 }
 
 func newSession(mgr *SessionManager, id, name string, client *whatsmeow.Client) *Session {
 	s := &Session{
-		id:     id,
-		name:   name,
-		mgr:    mgr,
-		log:    mgr.log.With("session", id),
-		client: client,
-		auth:   AuthSnapshot{State: "connecting"},
-		reg:    newCallRegistry(),
+		id:             id,
+		name:           name,
+		mgr:            mgr,
+		log:            mgr.log.With("session", id),
+		client:         client,
+		auth:           AuthSnapshot{State: "connecting"},
+		reg:            newCallRegistry(),
+		historyWaiters: make(map[string][]chan []*MessageRow),
 	}
 	client.AddEventHandler(s.handleEvent)
 	return s
@@ -280,6 +284,11 @@ func (s *Session) handleEvent(rawEvt any) {
 		}
 		s.setAuth(AuthSnapshot{State: "open", Paired: true})
 		go s.refreshSelfAvatar()
+		// Dispara sincronização inicial de grupos e contatos do WhatsApp
+		go func() {
+			time.Sleep(2 * time.Second)
+			_, _, _, _ = s.syncAllConversations(context.Background())
+		}()
 		// Saudacao na conversa do proprio numero, so no primeiro Connected
 		// depois do pareamento (controle em sessions.welcome_sent). O atraso
 		// da tempo do cliente concluir o handshake antes do primeiro envio.
@@ -358,6 +367,8 @@ func (s *Session) handleEvent(rawEvt any) {
 		}
 	case *events.Message:
 		s.handleWAMessage(evt)
+	case *events.HistorySync:
+		go s.handleHistorySync(evt)
 	}
 }
 

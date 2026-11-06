@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -242,32 +243,160 @@ func (s *server) handleLidToPN(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusNotFound, map[string]string{"error": "lid not mapped"})
 }
 
-// handleChatSyncAll iterates all known chats for a session and refreshes
-// missing names / pictures in the background. Returns immediately.
-func (s *server) handleChatSyncAll(w http.ResponseWriter, r *http.Request) {
-	sess := s.sessionByID(w, r, r.PathValue("sid"))
-	if sess == nil {
-		return
+// syncAllConversations pulls joined groups, subscribed newsletters, and contacts from
+// WhatsApp, registers them in chatMeta, triggers app-state sync, and schedules avatar enrichment.
+func (s *Session) syncAllConversations(ctx context.Context) (groupsCount, channelsCount, contactsCount int, err error) {
+	if s.client == nil || s.client.Store == nil || s.client.Store.ID == nil {
+		return 0, 0, 0, fmt.Errorf("sessão não está conectada ou pareada")
 	}
-	if sess.client == nil || sess.client.Store == nil || sess.client.Store.ID == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "not paired"})
-		return
+
+	now := time.Now().UnixMilli()
+
+	// 1. Grupos participantes
+	if s.client.IsConnected() {
+		if groups, gerr := s.client.GetJoinedGroups(ctx); gerr == nil && groups != nil {
+			for _, g := range groups {
+				if g == nil || g.JID.IsEmpty() {
+					continue
+				}
+				jidStr := g.JID.String()
+				name := strings.TrimSpace(g.Name)
+				if name == "" {
+					name = "Grupo " + jidStr
+				}
+				cur, _, _ := s.mgr.chatMeta.Get(ctx, s.id, jidStr)
+				cur.SessionID = s.id
+				cur.ChatJID = jidStr
+				cur.Name = name
+				cur.IsGroup = true
+				cur.Status = ChatStatusGroup
+				if cur.QueueID == "" {
+					cur.QueueID = s.queueID
+				}
+				if cur.UpdatedAt <= 0 {
+					cur.UpdatedAt = now
+				}
+				if err := s.mgr.chatMeta.Upsert(ctx, cur); err == nil {
+					groupsCount++
+					s.mgr.broker.emitChatMeta(cur)
+				}
+			}
+		}
 	}
-	metas, err := s.chatMeta.ListBySession(r.Context(), sess.id)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
+
+	// 2. Canais / Newsletters inscritos
+	if s.client.IsConnected() {
+		if newsletters, nerr := s.client.GetSubscribedNewsletters(ctx); nerr == nil && newsletters != nil {
+			for _, nl := range newsletters {
+				if nl == nil || nl.ID.IsEmpty() {
+					continue
+				}
+				jidStr := nl.ID.String()
+				name := strings.TrimSpace(nl.ThreadMeta.Name.Text)
+				if name == "" {
+					name = "Canal " + jidStr
+				}
+				cur, _, _ := s.mgr.chatMeta.Get(ctx, s.id, jidStr)
+				cur.SessionID = s.id
+				cur.ChatJID = jidStr
+				cur.Name = name
+				cur.IsGroup = true
+				cur.Status = ChatStatusGroup
+				if cur.QueueID == "" {
+					cur.QueueID = s.queueID
+				}
+				if cur.UpdatedAt <= 0 {
+					cur.UpdatedAt = now
+				}
+				if err := s.mgr.chatMeta.Upsert(ctx, cur); err == nil {
+					channelsCount++
+					s.mgr.broker.emitChatMeta(cur)
+				}
+			}
+		}
 	}
-	go func(items map[string]ChatMeta) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+
+	// 3. Contatos armazenados pelo WhatsApp
+	if s.client.Store.Contacts != nil {
+		if contacts, cerr := s.client.Store.Contacts.GetAllContacts(ctx); cerr == nil && contacts != nil {
+			for jid, ci := range contacts {
+				if jid.Server != types.DefaultUserServer && jid.Server != types.HiddenUserServer {
+					continue
+				}
+				jidStr := jid.ToNonAD().String()
+				name := strings.TrimSpace(ci.FullName)
+				if name == "" {
+					name = strings.TrimSpace(ci.PushName)
+				}
+				if name == "" {
+					name = strings.TrimSpace(ci.BusinessName)
+				}
+				if name == "" {
+					name = strings.TrimSpace(ci.FirstName)
+				}
+				phone := jidPhone(jidStr)
+				if name == "" {
+					name = phone
+				}
+				if name == "" {
+					continue
+				}
+				cur, exists, _ := s.mgr.chatMeta.Get(ctx, s.id, jidStr)
+				if !exists || cur.SessionID == "" {
+					cur = ChatMeta{
+						SessionID: s.id,
+						ChatJID:   jidStr,
+						Name:      name,
+						IsGroup:   false,
+						Status:    ChatStatusWaiting,
+						QueueID:   s.queueID,
+						UpdatedAt: now,
+					}
+					if err := s.mgr.chatMeta.Upsert(ctx, cur); err == nil {
+						contactsCount++
+						s.mgr.broker.emitChatMeta(cur)
+					}
+				} else if cur.Name == "" || cur.Name == jidStr || cur.Name == phone {
+					if name != phone && name != jidStr {
+						cur.Name = name
+						cur.UpdatedAt = now
+						if err := s.mgr.chatMeta.Upsert(ctx, cur); err == nil {
+							contactsCount++
+							s.mgr.broker.emitChatMeta(cur)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 4. Dispara sincronização de App State
+	go func() {
+		for _, patch := range appstate.AllPatchNames {
+			_ = s.client.FetchAppState(context.Background(), patch, false, false)
+		}
+	}()
+
+	// 5. Invalida cache de contatos
+	contactsCacheMu.Lock()
+	contactsCache = map[string]contactsCacheEntry{}
+	contactsCacheMu.Unlock()
+
+	// 6. Atualização em segundo plano de fotos e nomes
+	go func() {
+		metas, err := s.mgr.chatMeta.ListBySession(context.Background(), s.id)
+		if err != nil {
+			return
+		}
+		bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		for _, m := range items {
+		for _, m := range metas {
 			select {
-			case <-ctx.Done():
+			case <-bgCtx.Done():
 				return
 			default:
 			}
-			name, avatar, err := resolveContactNameAndAvatar(ctx, sess, m.ChatJID, m.Name, m.AvatarURL)
+			name, avatar, err := resolveContactNameAndAvatar(bgCtx, s, m.ChatJID, m.Name, m.AvatarURL)
 			if err != nil {
 				continue
 			}
@@ -277,12 +406,39 @@ func (s *server) handleChatSyncAll(w http.ResponseWriter, r *http.Request) {
 			m.Name = name
 			m.AvatarURL = avatar
 			m.UpdatedAt = time.Now().UnixMilli()
-			if err := s.chatMeta.Upsert(ctx, m); err == nil {
-				s.broker.emitChatMeta(m)
+			if err := s.mgr.chatMeta.Upsert(bgCtx, m); err == nil {
+				s.mgr.broker.emitChatMeta(m)
 			}
-			// throttle to avoid hammering WhatsApp servers
-			time.Sleep(150 * time.Millisecond)
+			time.Sleep(120 * time.Millisecond)
 		}
-	}(metas)
-	writeJSON(w, http.StatusAccepted, map[string]any{"queued": len(metas)})
+	}()
+
+	return groupsCount, channelsCount, contactsCount, nil
+}
+
+// handleChatSyncAll pulls all conversations (groups, contacts, channels) from the
+// WhatsApp API and updates their metadata and avatars.
+func (s *server) handleChatSyncAll(w http.ResponseWriter, r *http.Request) {
+	sess := s.sessionByID(w, r, r.PathValue("sid"))
+	if sess == nil {
+		return
+	}
+	if sess.client == nil || sess.client.Store == nil || sess.client.Store.ID == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "WhatsApp não está conectado ou pareado"})
+		return
+	}
+	groupsCount, channelsCount, contactsCount, err := sess.syncAllConversations(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	metas, _ := s.chatMeta.ListBySession(r.Context(), sess.id)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":       true,
+		"groups":   groupsCount,
+		"channels": channelsCount,
+		"contacts": contactsCount,
+		"total":    len(metas),
+		"queued":   len(metas),
+	})
 }

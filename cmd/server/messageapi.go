@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -87,6 +88,173 @@ func (s *Session) handleWAMessage(evt *events.Message) {
 	if isMediaKind(row.Kind) {
 		go s.fetchIncomingMedia(row, evt)
 	}
+}
+
+// handleHistorySync processes historical messages and conversations pushed
+// by WhatsApp during pairing, reconnection, or on-demand history fetch.
+func (s *Session) handleHistorySync(evt *events.HistorySync) {
+	if evt == nil || evt.Data == nil || s.mgr == nil || s.mgr.messages == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			s.log.Error("panic ao processar sincronizacao de historico", "err", r)
+		}
+	}()
+
+	// 1. Atualiza nomes de push enviados no lote
+	for _, pn := range evt.Data.GetPushnames() {
+		if pn == nil || pn.GetID() == "" || pn.GetPushname() == "" {
+			continue
+		}
+		jidStr := pn.GetID()
+		if s.mgr.chatMeta != nil {
+			if cur, ok, _ := s.mgr.chatMeta.Get(s.mgr.appCtx, s.id, jidStr); ok && cur.Name == "" {
+				cur.Name = pn.GetPushname()
+				cur.UpdatedAt = time.Now().UnixMilli()
+				_ = s.mgr.chatMeta.Upsert(s.mgr.appCtx, cur)
+			}
+		}
+	}
+
+	// 2. Mapeamento LID -> Telefone
+	if s.client != nil {
+		for _, mapping := range evt.Data.GetPhoneNumberToLidMappings() {
+			if mapping == nil || mapping.GetPnJID() == "" || mapping.GetLidJID() == "" {
+				continue
+			}
+			pn, err1 := types.ParseJID(mapping.GetPnJID())
+			lid, err2 := types.ParseJID(mapping.GetLidJID())
+			if err1 == nil && err2 == nil {
+				s.client.StoreLIDPNMapping(s.mgr.appCtx, pn, lid)
+			}
+		}
+	}
+
+	conversations := evt.Data.GetConversations()
+	if len(conversations) == 0 {
+		return
+	}
+	s.log.Info("processando sincronizacao de historico do WhatsApp",
+		"session", s.id, "conversas", len(conversations), "syncType", evt.Data.GetSyncType().String())
+
+	totalMsgs := 0
+	totalChats := 0
+
+	for _, conv := range conversations {
+		if conv == nil || conv.GetID() == "" {
+			continue
+		}
+		chatJID, err := types.ParseJID(conv.GetID())
+		if err != nil {
+			continue
+		}
+		chatJIDStr := chatJID.ToNonAD().String()
+		isGroup := isGroupChatJID(chatJIDStr) || chatJID.Server == types.GroupServer
+
+		// Se a conexão não permite grupos e for grupo, pula
+		if isGroup {
+			s.mu.Lock()
+			allow := s.allowGroups
+			s.mu.Unlock()
+			if !allow {
+				continue
+			}
+		}
+
+		name := strings.TrimSpace(conv.GetName())
+		if name == "" {
+			name = strings.TrimSpace(conv.GetDisplayName())
+		}
+
+		var cur ChatMeta
+		if s.mgr.chatMeta != nil {
+			cur, _, _ = s.mgr.chatMeta.Get(s.mgr.appCtx, s.id, chatJIDStr)
+		}
+
+		status := cur.Status
+		if status == "" {
+			if isGroup {
+				status = ChatStatusGroup
+			} else {
+				status = ChatStatusWaiting
+			}
+		}
+		if name == "" {
+			name = cur.Name
+		}
+
+		lastTs := int64(conv.GetConversationTimestamp() * 1000)
+		if lastTs <= 0 {
+			lastTs = int64(conv.GetLastMsgTimestamp() * 1000)
+		}
+		if lastTs <= 0 {
+			lastTs = time.Now().UnixMilli()
+		}
+
+		meta := ChatMeta{
+			SessionID:      s.id,
+			ChatJID:        chatJIDStr,
+			Name:           name,
+			IsGroup:        isGroup,
+			Status:         status,
+			AssignedUserID: cur.AssignedUserID,
+			QueueID:        cur.QueueID,
+			UpdatedAt:      lastTs,
+			AvatarURL:      cur.AvatarURL,
+		}
+		if meta.QueueID == "" {
+			meta.QueueID = s.queueID
+		}
+		if s.mgr.chatMeta != nil {
+			_ = s.mgr.chatMeta.Upsert(s.mgr.appCtx, meta)
+			s.mgr.broker.emitChatMeta(meta)
+		}
+		totalChats++
+
+		// Mensagens históricas dessa conversa
+		var parsedRows []*MessageRow
+		for _, histMsg := range conv.GetMessages() {
+			if histMsg == nil || histMsg.GetMessage() == nil || s.client == nil {
+				continue
+			}
+			parsedEvt, perr := s.client.ParseWebMessage(chatJID, histMsg.GetMessage())
+			if perr != nil || parsedEvt == nil {
+				continue
+			}
+			row := messageRowFromEvent(s.id, parsedEvt)
+			if row.ID == "" || row.ChatJID == "" {
+				continue
+			}
+			// Salva a mensagem no banco
+			if err := s.mgr.messages.Insert(s.mgr.appCtx, row); err == nil {
+				totalMsgs++
+				parsedRows = append(parsedRows, &row)
+				s.mgr.broker.emitMessage(row)
+			}
+		}
+
+		if len(parsedRows) > 0 {
+			s.historyWaitersMu.Lock()
+			if waiters, ok := s.historyWaiters[chatJIDStr]; ok {
+				for _, w := range waiters {
+					select {
+					case w <- parsedRows:
+					default:
+					}
+				}
+				delete(s.historyWaiters, chatJIDStr)
+			}
+			s.historyWaitersMu.Unlock()
+		}
+
+		if cur.AvatarURL == "" {
+			go s.fetchAvatarAsync(chatJIDStr)
+		}
+	}
+
+	s.log.Info("sincronizacao de historico concluida",
+		"session", s.id, "conversas", totalChats, "mensagens", totalMsgs)
 }
 
 func isMediaKind(k string) bool {
@@ -416,6 +584,59 @@ func (s *Session) routeMessageToFlow(row MessageRow) {
 	s.mgr.flowExec.StartForMessage(s.mgr.appCtx, s.id, ownerID, flowID, row)
 }
 
+func unwrapMessage(m *waE2E.Message) *waE2E.Message {
+	if m == nil {
+		return nil
+	}
+	if e := m.GetEphemeralMessage(); e != nil && e.GetMessage() != nil {
+		return unwrapMessage(e.GetMessage())
+	}
+	if v := m.GetViewOnceMessage(); v != nil && v.GetMessage() != nil {
+		return unwrapMessage(v.GetMessage())
+	}
+	if v := m.GetViewOnceMessageV2(); v != nil && v.GetMessage() != nil {
+		return unwrapMessage(v.GetMessage())
+	}
+	if v := m.GetViewOnceMessageV2Extension(); v != nil && v.GetMessage() != nil {
+		return unwrapMessage(v.GetMessage())
+	}
+	if d := m.GetDeviceSentMessage(); d != nil && d.GetMessage() != nil {
+		return unwrapMessage(d.GetMessage())
+	}
+	if p := m.GetEditedMessage(); p != nil && p.GetMessage() != nil {
+		return unwrapMessage(p.GetMessage())
+	}
+	if p := m.GetProtocolMessage(); p != nil && p.GetEditedMessage() != nil {
+		return unwrapMessage(p.GetEditedMessage())
+	}
+	return m
+}
+
+func extractQuotedID(m *waE2E.Message) string {
+	m = unwrapMessage(m)
+	if m == nil {
+		return ""
+	}
+	if r := m.GetReactionMessage(); r != nil && r.GetKey() != nil {
+		return r.GetKey().GetID()
+	}
+	switch {
+	case m.GetExtendedTextMessage() != nil && m.GetExtendedTextMessage().GetContextInfo() != nil:
+		return m.GetExtendedTextMessage().GetContextInfo().GetStanzaID()
+	case m.GetImageMessage() != nil && m.GetImageMessage().GetContextInfo() != nil:
+		return m.GetImageMessage().GetContextInfo().GetStanzaID()
+	case m.GetVideoMessage() != nil && m.GetVideoMessage().GetContextInfo() != nil:
+		return m.GetVideoMessage().GetContextInfo().GetStanzaID()
+	case m.GetAudioMessage() != nil && m.GetAudioMessage().GetContextInfo() != nil:
+		return m.GetAudioMessage().GetContextInfo().GetStanzaID()
+	case m.GetDocumentMessage() != nil && m.GetDocumentMessage().GetContextInfo() != nil:
+		return m.GetDocumentMessage().GetContextInfo().GetStanzaID()
+	case m.GetStickerMessage() != nil && m.GetStickerMessage().GetContextInfo() != nil:
+		return m.GetStickerMessage().GetContextInfo().GetStanzaID()
+	}
+	return ""
+}
+
 // messageRowFromEvent maps a whatsmeow *events.Message into our local row.
 func messageRowFromEvent(sessionID string, evt *events.Message) MessageRow {
 	if evt == nil || evt.Message == nil {
@@ -425,6 +646,13 @@ func messageRowFromEvent(sessionID string, evt *events.Message) MessageRow {
 	ts := evt.Info.Timestamp
 	if ts.IsZero() {
 		ts = time.Now()
+	}
+	quotedID := extractQuotedID(evt.Message)
+	if kind == "reaction" {
+		if quotedID == "" {
+			quotedID = mime
+		}
+		mime = ""
 	}
 	return MessageRow{
 		ID:         evt.Info.ID,
@@ -436,6 +664,7 @@ func messageRowFromEvent(sessionID string, evt *events.Message) MessageRow {
 		Kind:       kind,
 		Body:       body,
 		MediaMime:  mime,
+		QuotedID:   quotedID,
 		SenderName: evt.Info.PushName,
 	}
 }
@@ -669,9 +898,11 @@ func (s *server) registerMessageRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions/{sid}/chats/{jid}/events", s.requireAuth(s.handleChatEvents))
 	mux.HandleFunc("POST /api/sessions/{sid}/chats/{jid}/sync", s.requireAuth(s.handleChatSync))
 	mux.HandleFunc("POST /api/sessions/{sid}/chats/sync-all", s.requireAuth(s.handleChatSyncAll))
+	mux.HandleFunc("POST /api/sessions/{sid}/chats/{jid}/fetch-history", s.requireAuth(s.handleChatFetchHistory))
 	mux.HandleFunc("GET /api/sessions/{sid}/lid-pn/{jid}", s.requireAuth(s.handleLidToPN))
 	mux.HandleFunc("POST /api/sessions/{sid}/chats/{jid}/messages/{mid}/delete", s.requireAuth(s.handleMessageDelete))
 	mux.HandleFunc("POST /api/sessions/{sid}/chats/{jid}/messages/{mid}/edit", s.requireAuth(s.handleMessageEdit))
+	mux.HandleFunc("POST /api/sessions/{sid}/chats/{jid}/messages/{mid}/react", s.requireAuth(s.handleMessageReact))
 	mux.HandleFunc("POST /api/sessions/{sid}/chats/{jid}/messages/{mid}/forward", s.requireAuth(s.handleMessageForward))
 	mux.HandleFunc("POST /api/sessions/{sid}/chats/{jid}/note", s.requireAuth(s.handleChatNote))
 	mux.HandleFunc("POST /api/sessions/{sid}/chats/{jid}/trigger-flow", s.requireAuth(s.handleChatTriggerFlow))
@@ -690,7 +921,9 @@ func (s *server) handleChatList(w http.ResponseWriter, r *http.Request) {
 	if s.chatMeta != nil {
 		metas, _ := s.chatMeta.ListBySession(r.Context(), sess.id)
 		unread, _ := s.messages.UnreadCounts(r.Context(), sess.id)
+		seen := make(map[string]bool, len(chats)+len(metas))
 		for i := range chats {
+			seen[chats[i].ChatJID] = true
 			if m, ok := metas[chats[i].ChatJID]; ok {
 				chats[i].Name = m.Name
 				chats[i].IsGroup = m.IsGroup
@@ -715,7 +948,46 @@ func (s *server) handleChatList(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+
+		// Adiciona conversas que já foram sincronizadas no chatMeta mas ainda não têm mensagens gravadas
+		for jid, m := range metas {
+			if seen[jid] {
+				continue
+			}
+			if m.Status == ChatStatusClosed {
+				continue
+			}
+			isGrp := m.IsGroup || isGroupChatJID(jid)
+			st := m.Status
+			if st == "" {
+				if isGrp {
+					st = ChatStatusGroup
+				} else {
+					st = ChatStatusWaiting
+				}
+			}
+			qID := m.QueueID
+			if qID == "" {
+				qID = sess.queueID
+			}
+			chats = append(chats, ChatSummary{
+				ChatJID:        jid,
+				Name:           m.Name,
+				IsGroup:        isGrp,
+				Status:         st,
+				AssignedUserID: m.AssignedUserID,
+				QueueID:        qID,
+				LastReadTs:     m.LastReadTs,
+				AvatarURL:      m.AvatarURL,
+				LastTs:         m.UpdatedAt,
+				Unread:         unread[jid],
+				Count:          0,
+			})
+		}
 	}
+	sort.Slice(chats, func(i, j int) bool {
+		return chats[i].LastTs > chats[j].LastTs
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"chats": chats})
 }
 
@@ -733,6 +1005,140 @@ func (s *server) handleChatMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"messages": rows})
+}
+
+// handleChatFetchHistory retrieves older messages from local DB if available,
+// or requests an on-demand history sync directly from the primary phone via WhatsApp protocol.
+func (s *server) handleChatFetchHistory(w http.ResponseWriter, r *http.Request) {
+	sess := s.sessionByID(w, r, r.PathValue("sid"))
+	if sess == nil {
+		return
+	}
+	jid := r.PathValue("jid")
+	chatJID, err := types.ParseJID(jid)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JID inválido"})
+		return
+	}
+	chatJIDStr := chatJID.ToNonAD().String()
+
+	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	// 1. Primeiro verifica se o banco local já tem mensagens anteriores a 'before'
+	if before > 0 && s.messages != nil {
+		localOlder, err := s.messages.ListMessages(r.Context(), sess.id, chatJIDStr, limit, before)
+		if err == nil && len(localOlder) > 0 {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok":       true,
+				"source":   "database",
+				"count":    len(localOlder),
+				"messages": localOlder,
+			})
+			return
+		}
+	}
+
+	// 2. Se for modo Cloud API oficial:
+	if sess.mode == "cloud" {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":      true,
+			"source":  "cloud",
+			"count":   0,
+			"message": "Sessão oficial Cloud API não suporta busca direta do celular",
+		})
+		return
+	}
+
+	// 3. Se for whatsmeow, verifica se está conectado
+	if sess.client == nil || !sess.client.IsConnected() || sess.client.Store == nil || sess.client.Store.ID == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "WhatsApp não está conectado no aparelho"})
+		return
+	}
+
+	// 4. Localiza a mensagem mais antiga registrada no banco local para este chat
+	var lastKnown types.MessageInfo
+	if s.messages != nil {
+		oldest, ok, _ := s.messages.Oldest(r.Context(), sess.id, chatJIDStr)
+		if ok && oldest.ID != "" {
+			lastKnown = types.MessageInfo{
+				MessageSource: types.MessageSource{
+					Chat:     chatJID,
+					IsFromMe: oldest.FromMe,
+				},
+				ID:        types.MessageID(oldest.ID),
+				Timestamp: time.UnixMilli(oldest.Ts),
+			}
+		}
+	}
+	if lastKnown.ID == "" {
+		lastKnown = types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     chatJID,
+				IsFromMe: false,
+			},
+			ID:        "",
+			Timestamp: time.Now(),
+		}
+	}
+
+	reqMsg := sess.client.BuildHistorySyncRequest(&lastKnown, limit)
+	if reqMsg == nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "não foi possível construir requisição de histórico"})
+		return
+	}
+
+	// 5. Registra canal de espera
+	waitCh := make(chan []*MessageRow, 1)
+	sess.historyWaitersMu.Lock()
+	sess.historyWaiters[chatJIDStr] = append(sess.historyWaiters[chatJIDStr], waitCh)
+	sess.historyWaitersMu.Unlock()
+
+	defer func() {
+		sess.historyWaitersMu.Lock()
+		if list, found := sess.historyWaiters[chatJIDStr]; found {
+			filtered := list[:0]
+			for _, ch := range list {
+				if ch != waitCh {
+					filtered = append(filtered, ch)
+				}
+			}
+			if len(filtered) == 0 {
+				delete(sess.historyWaiters, chatJIDStr)
+			} else {
+				sess.historyWaiters[chatJIDStr] = filtered
+			}
+		}
+		sess.historyWaitersMu.Unlock()
+	}()
+
+	// 6. Envia mensagem peer ao celular
+	_, sendErr := sess.client.SendPeerMessage(r.Context(), reqMsg)
+	if sendErr != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "falha ao solicitar ao celular: " + sendErr.Error()})
+		return
+	}
+
+	// 7. Aguarda resposta do celular (até 10 segundos)
+	select {
+	case newMsgs := <-waitCh:
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":       true,
+			"source":   "phone",
+			"count":    len(newMsgs),
+			"messages": newMsgs,
+		})
+	case <-time.After(10 * time.Second):
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":      true,
+			"source":  "phone",
+			"queued":  true,
+			"message": "Solicitação enviada ao celular. O histórico será carregado assim que o celular responder.",
+		})
+	}
 }
 
 func (s *server) handleChatSend(w http.ResponseWriter, r *http.Request) {
@@ -1728,6 +2134,117 @@ func (s *server) handleMessageEdit(w http.ResponseWriter, r *http.Request) {
 	row.Edited = true
 	s.broker.emitMessage(row)
 	writeJSON(w, http.StatusOK, map[string]any{"message": row})
+}
+
+// handleMessageReact sends or clears an emoji reaction on a message.
+func (s *server) handleMessageReact(w http.ResponseWriter, r *http.Request) {
+	sess := s.sessionByID(w, r, r.PathValue("sid"))
+	if sess == nil {
+		return
+	}
+	var body struct {
+		Emoji string `json:"emoji"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid body"})
+		return
+	}
+	mid := strings.TrimSpace(r.PathValue("mid"))
+	if mid == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "message id required"})
+		return
+	}
+	chat, err := parseChatJID(r.PathValue("jid"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	targetRow, ok, _ := s.messages.Get(r.Context(), sess.id, mid)
+	emoji := strings.TrimSpace(body.Emoji)
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+
+	var sentID string
+	var sentTs int64
+
+	if sess.mode == "cloud" {
+		client, _, cerr := s.cloudClientForSession(ctx, sess.id)
+		if cerr != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": cerr.Error()})
+			return
+		}
+		to := chat.User
+		if to == "" {
+			to = chat.String()
+		}
+		id, err := client.SendReaction(ctx, to, mid, emoji)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		sentID = id
+		sentTs = time.Now().UnixMilli()
+	} else {
+		if sess.client == nil || sess.client.Store.ID == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "not paired"})
+			return
+		}
+		var senderJID types.JID
+		if ok && targetRow.FromMe {
+			if sess.client.Store.ID != nil {
+				senderJID = *sess.client.Store.ID
+			}
+		} else if ok && strings.TrimSpace(targetRow.SenderJID) != "" {
+			if parsed, err := types.ParseJID(targetRow.SenderJID); err == nil {
+				senderJID = parsed
+			} else {
+				senderJID = chat
+			}
+		} else {
+			senderJID = chat
+		}
+
+		reactionMsg := sess.client.BuildReaction(chat, senderJID, types.MessageID(mid), emoji)
+		resp, err := sess.client.SendMessage(ctx, chat, reactionMsg)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		sentID = resp.ID
+		if !resp.Timestamp.IsZero() {
+			sentTs = resp.Timestamp.UnixMilli()
+		} else {
+			sentTs = time.Now().UnixMilli()
+		}
+	}
+
+	senderStr := ""
+	if sess.client != nil && sess.client.Store != nil && sess.client.Store.ID != nil {
+		senderStr = sess.client.Store.ID.String()
+	}
+
+	reactionRow := MessageRow{
+		ID:        sentID,
+		SessionID: sess.id,
+		ChatJID:   chat.String(),
+		SenderJID: senderStr,
+		FromMe:    true,
+		Ts:        sentTs,
+		Kind:      "reaction",
+		Body:      emoji,
+		QuotedID:  mid,
+	}
+
+	if emoji == "" {
+		_ = s.messages.DeleteReaction(r.Context(), sess.id, chat.String(), mid)
+	} else {
+		if err := s.messages.Insert(r.Context(), reactionRow); err != nil {
+			s.log.Warn("insert reaction message failed", "err", err)
+		}
+	}
+	s.broker.emitMessage(reactionRow)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "reaction": reactionRow})
 }
 
 // handleMessageForward re-sends an existing text message to one or more

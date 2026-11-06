@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, Code2, LogOut, Moon, ShieldCheck, Sun, User as UserIcon } from "lucide-react";
+import { ChevronDown, Code2, Database, LogOut, Moon, ShieldCheck, Sun, User as UserIcon } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,7 +32,7 @@ export const UserMenu = () => {
   const theme = useTheme((s) => s.theme);
   const toggleTheme = useTheme((s) => s.toggle);
   if (!user) return null;
-  const isAdmin = user.roles?.includes("admin");
+  const isAdmin = !!user.roles?.includes("admin") || !user.parentId || user.email?.trim().toLowerCase() === "wacalls@admin.com";
   const label = user.companyName || user.email;
   const initials = initialsFor(label);
   const avatarSrc = user.avatarUrl
@@ -93,6 +93,18 @@ export const UserMenu = () => {
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           {theme === "dark" ? t("userMenu.lightMode") : t("userMenu.darkMode")}
         </DropdownMenuItem>
+        {isAdmin && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="gap-2 cursor-pointer"
+              onSelect={() => nav("/settings/backup")}
+            >
+              <Database className="h-4 w-4" />
+              <span>{t("nav.backup", { defaultValue: "Backup & Restauração" })}</span>
+            </DropdownMenuItem>
+          </>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="gap-2 text-destructive focus:text-destructive"

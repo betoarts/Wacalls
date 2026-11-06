@@ -146,6 +146,26 @@ func (c *Client) SendText(ctx context.Context, to, body string, previewURL bool)
 	return firstID(r), nil
 }
 
+// SendReaction sends an emoji reaction to a previously received/sent message.
+// Passing an empty emoji string removes an existing reaction.
+func (c *Client) SendReaction(ctx context.Context, to, messageID, emoji string) (string, error) {
+	payload := map[string]any{
+		"messaging_product": "whatsapp",
+		"recipient_type":    "individual",
+		"to":                to,
+		"type":              "reaction",
+		"reaction": map[string]string{
+			"message_id": messageID,
+			"emoji":      emoji,
+		},
+	}
+	var r sendResp
+	if err := c.do(ctx, http.MethodPost, c.PhoneID+"/messages", payload, &r); err != nil {
+		return "", err
+	}
+	return firstID(r), nil
+}
+
 // MediaPayload describes an outgoing image/document/video/audio/sticker.
 type MediaPayload struct {
 	Kind     string // "image" | "document" | "video" | "audio" | "sticker"

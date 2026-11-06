@@ -160,6 +160,24 @@ func (s *messageStore) Get(ctx context.Context, sessionID, id string) (MessageRo
 	return m, true, nil
 }
 
+// Oldest returns the oldest stored message for a chat (lowest ts).
+func (s *messageStore) Oldest(ctx context.Context, sessionID, chatJID string) (MessageRow, bool, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, session_id, chat_jid, sender_jid, from_me, ts, kind, body, media_mime, quoted_id, edited, deleted, media_url, file_name, file_size, sender_name
+		FROM messages WHERE session_id = ? AND chat_jid = ? ORDER BY ts ASC LIMIT 1`, sessionID, chatJID)
+	var m MessageRow
+	var fromMe, edited, deleted int
+	if err := row.Scan(&m.ID, &m.SessionID, &m.ChatJID, &m.SenderJID, &fromMe, &m.Ts, &m.Kind, &m.Body, &m.MediaMime, &m.QuotedID, &edited, &deleted, &m.MediaURL, &m.FileName, &m.FileSize, &m.SenderName); err != nil {
+		if err == sql.ErrNoRows {
+			return MessageRow{}, false, nil
+		}
+		return MessageRow{}, false, err
+	}
+	m.FromMe = fromMe == 1
+	m.Edited = edited == 1
+	m.Deleted = deleted == 1
+	return m, true, nil
+}
+
 // UpdateBody overwrites the stored body and marks the message as edited.
 func (s *messageStore) UpdateBody(ctx context.Context, sessionID, id, body string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE messages SET body = ?, edited = 1 WHERE session_id = ? AND id = ?`, body, sessionID, id)
@@ -177,6 +195,12 @@ func (s *messageStore) UpdateMedia(ctx context.Context, sessionID, id, url, name
 // MarkDeleted flags a message as revoked; body is cleared.
 func (s *messageStore) MarkDeleted(ctx context.Context, sessionID, id string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE messages SET body = '', deleted = 1 WHERE session_id = ? AND id = ?`, sessionID, id)
+	return err
+}
+
+// DeleteReaction removes an outgoing reaction from me on a given message.
+func (s *messageStore) DeleteReaction(ctx context.Context, sessionID, chatJID, quotedID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM messages WHERE session_id = ? AND chat_jid = ? AND from_me = 1 AND kind = 'reaction' AND quoted_id = ?`, sessionID, chatJID, quotedID)
 	return err
 }
 

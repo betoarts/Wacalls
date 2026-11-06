@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode, type ComponentType } from "react";
-import { BarChart3, ChevronDown, ChevronsLeft, ChevronsRight, Contact2, HeartHandshake, History, Info, KanbanSquare, Layers, Maximize2, Megaphone, Menu as MenuIcon, MessageSquare, Minimize2, Palette, PhoneCall, Radio, Settings, ShoppingCart, Tag, Users2, Wifi, Workflow } from "lucide-react";
+import { BarChart3, ChevronDown, ChevronsLeft, ChevronsRight, Contact2, Database, HeartHandshake, History, Info, KanbanSquare, Layers, Maximize2, Megaphone, Menu as MenuIcon, MessageSquare, Minimize2, Palette, PhoneCall, Radio, Settings, ShoppingCart, Tag, Users2, Wifi, Workflow } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { NotificationsMenu } from "./NotificationsMenu";
 import { UserMenu } from "./UserMenu";
@@ -66,7 +66,7 @@ const AppShellInner = ({ children }: { children: ReactNode }) => {
   const brandName = wl?.appName || "VozZap";
   const isSuperAdmin =
     !!user && user.email.trim().toLowerCase() === "wacalls@admin.com";
-  const isAdmin = !!user?.roles.includes("admin") || isSuperAdmin;
+  const isAdmin = !!user?.roles?.includes("admin") || !user?.parentId || isSuperAdmin;
   // Carrega o plano ativo assim que o shell monta para que itens não cobertos
   // pelo plano fiquem ocultos imediatamente.
   const planLoaded = usePlanStore((s) => s.loaded);
@@ -129,6 +129,7 @@ const AppShellInner = ({ children }: { children: ReactNode }) => {
     { to: "/campaigns", icon: Megaphone, label: t("nav.campaigns", { defaultValue: "Campanhas" }), perm: "chats" },
     { to: "/connections", icon: Wifi, label: t("nav.connections", { defaultValue: "Conexões" }), perm: "connections" },
     { to: "/reports", icon: BarChart3, label: t("nav.reports", { defaultValue: "Relatórios" }), perm: "chats" },
+    ...(isAdmin ? [{ to: "/settings/backup", icon: Database, label: t("nav.backup", { defaultValue: "Backup & Restauração" }), perm: "chats" as Permission }] : []),
     { to: "/tags", icon: Tag, label: t("nav.tags", { defaultValue: "Tags" }), perm: "chats" },
     { to: "/features", icon: Info, label: t("nav.features", { defaultValue: "Funcionalidades" }), perm: "chats" },
     { to: "/help", icon: HeartHandshake, label: t("nav.help", { defaultValue: "Ajuda" }), perm: "chats" },
@@ -138,6 +139,7 @@ const AppShellInner = ({ children }: { children: ReactNode }) => {
     aplicacoes.push({ to: "/admin/users", icon: Contact2, label: t("nav.users", { defaultValue: "Usuários" }), perm: "chats" });
     aplicacoes.push({ to: "/settings/whitelabel", icon: Palette, label: t("nav.whitelabel", { defaultValue: "Whitelabel" }), perm: "chats" });
     aplicacoes.push({ to: "/settings/email", icon: Settings, label: t("nav.emailSettings", { defaultValue: "E-mail / SMTP" }), perm: "chats" });
+    aplicacoes.push({ to: "/settings/backup", icon: Database, label: t("nav.backup", { defaultValue: "Backup & Restauração" }), perm: "chats" });
   }
   const filterAllowed = (arr: (NavItem & { perm: Permission; feat?: string })[]): NavItem[] =>
     arr.filter((it) => hasPermission(user, it.perm));
@@ -173,6 +175,7 @@ const AppShellInner = ({ children }: { children: ReactNode }) => {
       { match: (p) => p.startsWith("/history"), label: t("nav.history") || "Histórico" },
       { match: (p) => p.startsWith("/reports"), label: t("nav.reports") || "Relatórios" },
       { match: (p) => p.startsWith("/billing"), label: t("nav.billing") || "Financeiro" },
+      { match: (p) => p.startsWith("/settings/backup"), label: "Backup & Restauração" },
       { match: (p) => p.startsWith("/settings"), label: t("nav.settings") || "Configurações" },
     ];
     const fb = fallbacks.find((f) => f.match(loc.pathname));

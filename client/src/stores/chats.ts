@@ -211,6 +211,21 @@ export const fetchMessages = async (sessionId: string, jid: string) => {
   }
 };
 
+export const prependMessages = (sessionId: string, jid: string, olderMessages: ChatMessage[]) => {
+  if (!olderMessages || olderMessages.length === 0) return;
+  const normalized = olderMessages.map(normalizeDeletedMessage);
+  useChats.setState((s) => {
+    const perSession = { ...(s.messagesBySession[sessionId] ?? {}) };
+    const current = perSession[jid] ?? [];
+    const seen = new Set(current.map((m) => m.id));
+    const toAdd = normalized.filter((m) => !seen.has(m.id));
+    if (toAdd.length === 0) return {} as any;
+    const merged = [...toAdd, ...current].sort((a, b) => a.ts - b.ts);
+    perSession[jid] = merged;
+    return { messagesBySession: { ...s.messagesBySession, [sessionId]: perSession } };
+  });
+};
+
 // Local persistence of message bodies/media so we can still display the
 // original content after a refresh if the contact (or operator) revokes a
 // message. The backend wipes the body on revoke, so without this snapshot
@@ -286,7 +301,7 @@ const normalizeDeletedMessage = (msg: ChatMessage): ChatMessage => {
   };
 };
 
-const upsertMessage = (msg: ChatMessage) => {
+export const upsertMessage = (msg: ChatMessage) => {
   const placeholder = !msg.deleted && looksDeletedPlaceholder(msg.body, msg.kind);
   const effectivelyDeleted = msg.deleted || placeholder;
   // Persist non-deleted snapshots so we can recover them after refresh.

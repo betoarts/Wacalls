@@ -63,6 +63,7 @@ func (s *server) routes() http.Handler {
 	s.registerBusinessHoursRoutes(mux)
 	s.registerContactsRoutes(mux)
 	s.registerSettingsRoutes(mux)
+	s.registerBackupRoutes(mux)
 
 	s.registerBillingRoutes(mux)
 	s.registerFreeTierRoutes(mux)
@@ -124,10 +125,18 @@ func spaHandler(dir string) http.Handler {
 		fs := http.FileServer(http.Dir(dir))
 		full := filepath.Join(dir, filepath.Clean(p))
 		if info, err := os.Stat(full); err == nil && !info.IsDir() {
+			if strings.HasSuffix(p, "index.html") {
+				w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+				w.Header().Set("Pragma", "no-cache")
+				w.Header().Set("Expires", "0")
+			}
 			fs.ServeHTTP(w, r)
 			return
 		}
 		// Fallback to index.html for SPA routes.
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 		http.ServeFile(w, r, index)
 	})
 }

@@ -127,10 +127,34 @@ export const syncChatContact = (sessionId: string, jid: string) =>
     (r) => r.meta,
   );
 
-// syncAllChatContacts kicks off a background refresh for every known chat in
-// the session. Returns the number of conversations queued.
+// syncAllChatContacts pulls all groups, channels, contacts and app-state from WhatsApp,
+// and refreshes metadata and avatars in the background.
 export const syncAllChatContacts = (sessionId: string) =>
-  http<{ queued: number }>(`/api/sessions/${sessionId}/chats/sync-all`, { method: "POST" });
+  http<{ ok?: boolean; groups?: number; channels?: number; contacts?: number; total?: number; queued: number }>(
+    `/api/sessions/${sessionId}/chats/sync-all`,
+    { method: "POST" },
+  );
+
+// fetchChatHistoryFromPhone requests older messages from local DB if present,
+// or directly from the primary phone via WhatsApp protocol (on-demand history sync).
+export const fetchChatHistoryFromPhone = (
+  sessionId: string,
+  jid: string,
+  opts: { before?: number; limit?: number } = {},
+) => {
+  const params = new URLSearchParams();
+  if (opts.before) params.set("before", String(opts.before));
+  if (opts.limit) params.set("limit", String(opts.limit));
+  const query = params.toString() ? `?${params.toString()}` : "";
+  return http<{
+    ok: boolean;
+    source: "database" | "phone" | "cloud";
+    count?: number;
+    queued?: boolean;
+    messages?: ChatMessage[];
+    message?: string;
+  }>(`/api/sessions/${sessionId}/chats/${encodeURIComponent(jid)}/fetch-history${query}`, { method: "POST" });
+};
 
 // Per-message moderation. delete = revoke for everyone (only own messages).
 export const deleteMessage = (sessionId: string, jid: string, mid: string) =>
@@ -144,6 +168,12 @@ export const editMessage = (sessionId: string, jid: string, mid: string, text: s
     `/api/sessions/${sessionId}/chats/${encodeURIComponent(jid)}/messages/${encodeURIComponent(mid)}/edit`,
     { method: "POST", body: JSON.stringify({ text }) },
   ).then((r) => r.message);
+
+export const reactMessage = (sessionId: string, jid: string, mid: string, emoji: string) =>
+  http<{ ok: boolean; reaction?: ChatMessage }>(
+    `/api/sessions/${sessionId}/chats/${encodeURIComponent(jid)}/messages/${encodeURIComponent(mid)}/react`,
+    { method: "POST", body: JSON.stringify({ emoji }) },
+  );
 
 export const forwardMessage = (sessionId: string, jid: string, mid: string, targets: string[]) =>
   http<{ sent: number; errors: string[] }>(

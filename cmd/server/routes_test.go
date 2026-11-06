@@ -18,6 +18,7 @@ func TestAllRoutesRegisterWithoutPanic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newServer failed: %v", err)
 	}
+	defer srv.db.Close()
 
 	handler := srv.routes()
 	if handler == nil {

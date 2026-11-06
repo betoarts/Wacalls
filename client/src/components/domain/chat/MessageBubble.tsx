@@ -36,13 +36,14 @@ interface BubbleProps {
   onEdit?: (m: ChatMessage) => void;
   onDelete?: (m: ChatMessage) => void;
   onReply?: (m: ChatMessage) => void;
+  onReact?: (m: ChatMessage, emoji: string) => void | Promise<void>;
   // Reactions that target this message (already resolved via quotedId
   // by the parent ChatView). Rendered as a small chip under the bubble
   // so it's clear which message was reacted to.
   reactions?: Array<{ emoji: string; fromMe: boolean; senderName?: string }>;
 }
 
-export const MessageBubble = ({ message, showSender, onForward, onEdit, onDelete, onReply, reactions }: BubbleProps) => {
+export const MessageBubble = ({ message, showSender, onForward, onEdit, onDelete, onReply, onReact, reactions }: BubbleProps) => {
   const mine = message.fromMe;
   if (message.kind === "note") {
     return (
@@ -87,6 +88,7 @@ export const MessageBubble = ({ message, showSender, onForward, onEdit, onDelete
   const hasMenu =
     showEdit || showDelete || showForward || showReply || showCopy || showOpen || showDownload || showShare || showReact;
   const reactionChips = reactions?.length ? dedupeReactions(reactions) : [];
+  const myReaction = reactions?.find((r) => r.fromMe)?.emoji;
 
   const [reactOpen, setReactOpen] = useState(false);
 
@@ -146,12 +148,9 @@ export const MessageBubble = ({ message, showSender, onForward, onEdit, onDelete
 
   const handleReact = (emoji: string) => {
     closeAll();
-    // Local-only reaction: copy emoji to clipboard so the agent can paste/forward.
-    try {
-      void navigator.clipboard.writeText(emoji);
-      toast.success(`Reação copiada: ${emoji}`);
-    } catch {
-      /* ignore */
+    if (onReact) {
+      const next = myReaction === emoji ? "" : emoji;
+      void onReact(message, next);
     }
   };
 
@@ -163,16 +162,41 @@ export const MessageBubble = ({ message, showSender, onForward, onEdit, onDelete
         } ${deleted ? "opacity-80" : ""}`}
       >
         {hasMenu && (
-          <button
-            type="button"
-            aria-label="Ações da mensagem"
-            onClick={() => setMenuOpen((v) => !v)}
-            className={`absolute right-1 top-1 hidden rounded-full p-0.5 transition group-hover/msg:flex ${
-              mine ? "text-primary-foreground/80 hover:bg-primary-foreground/15" : "text-muted-foreground hover:bg-muted"
+          <div
+            className={`absolute right-1 top-1 hidden items-center gap-0.5 rounded-full p-0.5 transition group-hover/msg:flex ${
+              mine ? "text-primary-foreground/80" : "text-muted-foreground"
             }`}
           >
-            <ChevronDown className="h-3.5 w-3.5" />
-          </button>
+            {showReact && (
+              <button
+                type="button"
+                aria-label="Reagir"
+                onClick={() => {
+                  setReactOpen(true);
+                  setMenuOpen(true);
+                }}
+                className={`rounded-full p-1 transition ${
+                  mine ? "hover:bg-primary-foreground/15" : "hover:bg-muted"
+                }`}
+                title="Reagir"
+              >
+                <Smile className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <button
+              type="button"
+              aria-label="Ações da mensagem"
+              onClick={() => {
+                setReactOpen(false);
+                setMenuOpen((v) => !v);
+              }}
+              className={`rounded-full p-1 transition ${
+                mine ? "hover:bg-primary-foreground/15" : "hover:bg-muted"
+              }`}
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+          </div>
         )}
         {menuOpen && (
           <>
@@ -192,18 +216,24 @@ export const MessageBubble = ({ message, showSender, onForward, onEdit, onDelete
               {showReact && (
                 <div className="border-b px-2 py-1.5">
                   {reactOpen ? (
-                    <div className="flex flex-wrap gap-1">
-                      {REACTION_EMOJIS.map((e) => (
-                        <button
-                          key={e}
-                          type="button"
-                          onClick={() => handleReact(e)}
-                          className="rounded p-1 text-lg leading-none hover:bg-muted"
-                          aria-label={`Reagir com ${e}`}
-                        >
-                          {e}
-                        </button>
-                      ))}
+                    <div className="flex flex-wrap items-center gap-1">
+                      {REACTION_EMOJIS.map((e) => {
+                        const isSelected = myReaction === e;
+                        return (
+                          <button
+                            key={e}
+                            type="button"
+                            onClick={() => handleReact(e)}
+                            className={`rounded p-1 text-lg leading-none transition hover:bg-muted ${
+                              isSelected ? "bg-primary/20 ring-1 ring-primary scale-110" : ""
+                            }`}
+                            aria-label={`Reagir com ${e}`}
+                            title={isSelected ? `Remover reação ${e}` : `Reagir com ${e}`}
+                          >
+                            {e}
+                          </button>
+                        );
+                      })}
                     </div>
                   ) : (
                     <MenuItem
@@ -302,10 +332,22 @@ export const MessageBubble = ({ message, showSender, onForward, onEdit, onDelete
         </div>
         {reactionChips.length > 0 && (
           <div
-            className={`absolute -bottom-2.5 z-10 inline-flex items-center gap-0.5 rounded-full border bg-background px-1.5 py-0.5 text-xs leading-none shadow-sm text-foreground ${
+            className={`absolute -bottom-2.5 z-10 inline-flex items-center gap-0.5 rounded-full border bg-background px-1.5 py-0.5 text-xs leading-none shadow-sm text-foreground cursor-pointer transition hover:bg-muted ${
               mine ? "right-2" : "left-2"
-            }`}
-            title={`${reactionChips.length} reação${reactionChips.length > 1 ? "ões" : ""}`}
+            } ${myReaction ? "border-primary/50 text-primary font-medium" : ""}`}
+            title={
+              myReaction
+                ? `Você reagiu com ${myReaction} (clique para remover)`
+                : `${reactionChips.length} reação${reactionChips.length > 1 ? "ões" : ""}`
+            }
+            onClick={() => {
+              if (myReaction) {
+                handleReact(myReaction);
+              } else {
+                setReactOpen(true);
+                setMenuOpen(true);
+              }
+            }}
           >
             {reactionChips.map((r, i) => (
               <span key={`${r.emoji}-${i}`}>{r.emoji}</span>

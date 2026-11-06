@@ -57,3 +57,6 @@ licenca.json
 
 /dist-installer/
 !.env.default
+
+/backups/
+*.pre_restore*

@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
-import { ArrowLeftRight, Check, RotateCcw, Send, X } from "lucide-react";
+import { ArrowLeftRight, Check, RefreshCw, RotateCcw, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { Button } from "@/components/ui/button";
 import { setChatStatus, useChats } from "@/stores/chats";
 import { useSessions } from "@/stores/sessions";
 import type { ChatSummary } from "@/types/chat";
@@ -30,6 +31,8 @@ interface Props {
   selectedQueueId?: string;
   sessionQueueId?: string;
   queues?: Queue[];
+  onSyncAll?: () => void;
+  syncing?: boolean;
   onSelect: (jid: string) => void;
   onStatusChange?: (status: "open" | "waiting" | "closed") => void;
 }
@@ -82,6 +85,8 @@ export const ChatList = ({
   selectedQueueId = "all",
   sessionQueueId,
   queues = [],
+  onSyncAll,
+  syncing,
   onSelect,
   onStatusChange,
 }: Props) => {
@@ -104,8 +109,14 @@ export const ChatList = ({
 
   if (filtered.length === 0) {
     return (
-      <div className="p-4 text-sm text-muted-foreground">
-        {t("chat.nothingHereYet", { defaultValue: "Nada por aqui ainda." })}
+      <div className="flex flex-1 flex-col items-center justify-center p-6 text-center text-sm text-muted-foreground gap-3">
+        <p>{t("chat.nothingHereYet", { defaultValue: "Nada por aqui ainda." })}</p>
+        {onSyncAll && (
+          <Button variant="outline" size="sm" onClick={onSyncAll} disabled={syncing} className="gap-1.5 text-xs">
+            <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+            {t("chat.syncWhatsApp", { defaultValue: "Sincronizar conversas do WhatsApp" })}
+          </Button>
+        )}
       </div>
     );
   }
@@ -346,11 +357,15 @@ const ChatRow = ({
                 // A conversa esconde mensagens apagadas; a prévia não anuncia
                 // um "Mensagem" que o operador não vai encontrar lá dentro.
                 "—"
-              ) : (
+              ) : chat.lastMessage ? (
                 <>
                   {chat.lastFromMe ? `${t("chat.you", { defaultValue: "Você" })}: ` : ""}
                   {previewBody(chat.lastKind, chat.lastMessage)}
                 </>
+              ) : (
+                <span className="italic opacity-60">
+                  {isGroup ? t("chat.syncedGroup", { defaultValue: "Grupo sincronizado" }) : t("chat.noRecentMessages", { defaultValue: "Nenhuma mensagem recente" })}
+                </span>
               )}
             </span>
           </div>

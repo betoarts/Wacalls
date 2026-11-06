@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { isCallRecordingEnabled } from "@/lib/call-recording-pref";
-import { CheckCheck, History, KanbanSquare, Mic, Paperclip, Phone, PhoneOff, Search, Send, Smile, UserPlus, Image as ImageIcon, FileText, Film, Contact2, Settings2, Signature, StickyNote, Workflow, Zap, Clock, X } from "lucide-react";
+import { CheckCheck, History, KanbanSquare, Mic, Paperclip, Phone, PhoneOff, Search, Send, Smartphone, Smile, UserPlus, Image as ImageIcon, FileText, Film, Contact2, Settings2, Signature, StickyNote, Workflow, Zap, Clock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useChats, setChatStatus } from "@/stores/chats";
+import { useChats, setChatStatus, upsertMessage, prependMessages } from "@/stores/chats";
 import { useAuth } from "@/stores/auth";
-import { assignChat, closeChat, deleteMessage, editMessage, forwardMessage, getSignature, listChatClosures, listChatEvents, resolveLidPhone, sendContact, sendMedia, sendMessage, sendNote, setSignature as saveSignature, triggerFlow } from "@/services/chats";
+import { assignChat, closeChat, deleteMessage, editMessage, fetchChatHistoryFromPhone, forwardMessage, getSignature, listChatClosures, listChatEvents, reactMessage, resolveLidPhone, sendContact, sendMedia, sendMessage, sendNote, setSignature as saveSignature, triggerFlow } from "@/services/chats";
 import { listContacts } from "@/services/contacts";
 import { useOptionsStore } from "@/stores/options";
 import { listUsers } from "@/services/auth";
@@ -81,6 +81,7 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
   // "<digits>@lid" JID is NOT a phone number — showing it raw would render
   // garbage like "+110101620904079". We ask the backend to translate it.
   const [lidPhone, setLidPhone] = useState<string | null>(null);
+  const [fetchingHistory, setFetchingHistory] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -789,9 +790,23 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
     let targetId: string | undefined;
     let emoji: string | undefined;
     const actorKey = actorKeyFor(m);
-    if (m.kind === "reaction" && m.body) {
-      emoji = m.body;
+    if (m.kind === "reaction") {
+      emoji = (m.body || "").trim();
       targetId = resolveTargetId(m.quotedId);
+      if (!targetId) {
+        targetId = findFallbackTarget(i, m.fromMe, actorKey);
+      }
+      hiddenReactionIds.add(m.id);
+      if (!emoji) {
+        // Unreact / removal: remove this actor's reaction from targetId
+        if (targetId) {
+          const list = (reactionsByTarget.get(targetId) || []).filter(
+            (r) => reactionActorKey(r) !== actorKey,
+          );
+          reactionsByTarget.set(targetId, list);
+        }
+        continue;
+      }
     } else if (m.kind === "text" && m.body && REACTION_RE.test(m.body)) {
       const match = m.body.match(REACTION_RE);
       emoji = match?.[1]?.trim();
@@ -804,16 +819,15 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
     // missing and fall back to a timeline-based anchor. This keeps the
     // emoji visually attached to a bubble instead of getting dropped
     // (when the quoted message hasn't been loaded yet) or hidden.
-    if (!targetId || hasSameReactionOnTarget(targetId, actorKey, emoji)) {
+    if (!targetId) {
       targetId = findFallbackTarget(i, m.fromMe, actorKey);
     }
     if (!targetId) continue;
-    const list = reactionsByTarget.get(targetId) || [];
-    // De-dupe identical emoji from the same actor (WhatsApp resends
-    // reaction events when the user re-taps the same emoji).
-    if (!list.some((r) => r.emoji === emoji && reactionActorKey(r) === actorKey)) {
-      list.push({ emoji, fromMe: m.fromMe, senderName: m.senderName });
-    }
+    // An actor can have at most one reaction on a message. Replace previous with current.
+    const list = (reactionsByTarget.get(targetId) || []).filter(
+      (r) => reactionActorKey(r) !== actorKey,
+    );
+    list.push({ emoji, fromMe: m.fromMe, senderName: m.senderName });
     reactionsByTarget.set(targetId, list);
     hiddenReactionIds.add(m.id);
   }
@@ -836,6 +850,51 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
       .map<TimelineItem>((m) => ({ kind: "msg", ts: m.ts, key: `m:${m.id}`, msg: m })),
     ...(search ? [] : chatEvents.map<TimelineItem>((e) => ({ kind: "evt", ts: e.ts, key: `e:${e.id}`, evt: e }))),
   ].sort((a, b) => a.ts - b.ts);
+  const handleReactMessage = async (msg: ChatMessage, emoji: string) => {
+    if (!sessionId || !chatJid) return;
+    try {
+      const res = await reactMessage(sessionId, chatJid, msg.id, emoji);
+      if (res?.reaction) {
+        upsertMessage(res.reaction);
+      }
+    } catch (err: any) {
+      toast.error(err?.message || t("chat.errReact", { defaultValue: "Não foi possível enviar a reação." }));
+    }
+  };
+
+  const handleFetchHistory = async () => {
+    if (!sessionId || !chatJid || fetchingHistory) return;
+    setFetchingHistory(true);
+    const oldestTs = messages.length > 0 ? Math.min(...messages.map((m) => m.ts)) : undefined;
+    const toastId = toast.loading(t("chat.fetchingHistoryLoading", { defaultValue: "Buscando histórico de mensagens…" }));
+    try {
+      const res = await fetchChatHistoryFromPhone(sessionId, chatJid, { before: oldestTs, limit: 50 });
+      if (res?.messages && res.messages.length > 0) {
+        prependMessages(sessionId, chatJid, res.messages);
+        toast.success(
+          res.source === "phone"
+            ? t("chat.fetchingHistoryPhoneSuccess", {
+                defaultValue: `${res.messages.length} mensagens recuperadas diretamente do celular!`,
+                count: res.messages.length,
+              })
+            : t("chat.fetchingHistoryDbSuccess", {
+                defaultValue: `${res.messages.length} mensagens anteriores carregadas!`,
+                count: res.messages.length,
+              }),
+        );
+      } else if (res?.queued) {
+        toast.info(res.message || t("chat.fetchingHistoryQueued", { defaultValue: "Solicitação enviada ao celular. O histórico será carregado em breve." }));
+      } else {
+        toast.info(t("chat.fetchingHistoryNoMore", { defaultValue: "Não há mais mensagens anteriores para carregar." }));
+      }
+    } catch (err: any) {
+      toast.error(err?.message || t("chat.fetchingHistoryError", { defaultValue: "Não foi possível buscar histórico do celular." }));
+    } finally {
+      setFetchingHistory(false);
+      toast.dismiss(toastId);
+    }
+  };
+
   return (
     <div className="relative flex flex-1 flex-col">
       <header className="flex items-center gap-3 border-b px-4 py-3">
@@ -929,6 +988,15 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
           <Button
             size="sm"
             variant="ghost"
+            title={t("chat.fetchHistoryTitle", { defaultValue: "Buscar histórico do celular" })}
+            onClick={handleFetchHistory}
+            disabled={fetchingHistory}
+          >
+            <Smartphone className={`h-4 w-4 ${fetchingHistory ? "animate-spin text-primary" : ""}`} />
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
             title="Logs do atendimento"
             onClick={() => (showHistory ? setShowHistory(false) : void openHistory())}
           >
@@ -1001,47 +1069,78 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
       )}
       <div ref={scrollRef} className="chat-doodle-bg flex-1 overflow-y-auto px-4 py-3">
         {timeline.length === 0 ? (
-          <div className="grid h-full place-items-center text-xs text-muted-foreground">Sem mensagens ainda.</div>
+          <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-xs text-muted-foreground">
+            <p>{t("chat.noMessagesYet", { defaultValue: "Sem mensagens ainda nesta conversa." })}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleFetchHistory}
+              disabled={fetchingHistory}
+              className="gap-1.5 rounded-full bg-background/80 text-xs shadow-sm backdrop-blur"
+            >
+              <Smartphone className={`h-3.5 w-3.5 ${fetchingHistory ? "animate-spin text-primary" : ""}`} />
+              {fetchingHistory
+                ? t("chat.fetchingHistoryLoading", { defaultValue: "Buscando no celular…" })
+                : t("chat.fetchHistoryFromPhone", { defaultValue: "Buscar histórico do celular" })}
+            </Button>
+          </div>
         ) : (
-          <ul className="flex flex-col gap-1">
-            {timeline.map((item) => {
-              if (item.kind === "evt") return null;
-              const day = formatDayHeader(item.ts);
-              const showDay = day !== lastDay;
-              lastDay = day;
-              const m = item.msg;
-              return (
-                <li key={item.key} className="flex flex-col">
-                  {showDay && (
-                    <div className="my-2 self-center rounded-full bg-background px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                      {day}
-                    </div>
-                  )}
-                  <MessageBubble
-                    message={m}
-                    showSender={isGroup && !m.fromMe}
-                    reactions={reactionsByTarget.get(m.id)}
-                    onForward={(msg) => setForwardTarget(msg)}
-                    onReply={(msg) => setReplyTo(msg)}
-                    onEdit={(msg) => {
-                      setEditing(msg);
-                      setEditingText(msg.body);
-                    }}
-                    onDelete={async (msg) => {
-                      if (!chatJid) return;
-                      if (!window.confirm(t("chat.confirmDeleteMessage", { defaultValue: "Apagar esta mensagem para todos?" }))) return;
-                      try {
-                        await deleteMessage(sessionId, chatJid, msg.id);
-                      } catch (e) {
-                        console.error("delete failed", e);
-                        alert(t("chat.errDeleteMessage", { defaultValue: "Não foi possível apagar (mensagens antigas podem não permitir)." }));
-                      }
-                    }}
-                  />
-                </li>
-              );
-            })}
-          </ul>
+          <div className="flex flex-col">
+            <div className="flex justify-center pb-2.5 pt-0.5">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleFetchHistory}
+                disabled={fetchingHistory}
+                className="h-7 gap-1.5 rounded-full border bg-background/80 px-3 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur hover:text-foreground"
+              >
+                <Smartphone className={`h-3.5 w-3.5 ${fetchingHistory ? "animate-spin text-primary" : ""}`} />
+                {fetchingHistory
+                  ? t("chat.fetchingHistoryLoading", { defaultValue: "Buscando histórico no celular…" })
+                  : t("chat.loadOlderFromPhone", { defaultValue: "Carregar mensagens anteriores do celular" })}
+              </Button>
+            </div>
+            <ul className="flex flex-col gap-1">
+              {timeline.map((item) => {
+                if (item.kind === "evt") return null;
+                const day = formatDayHeader(item.ts);
+                const showDay = day !== lastDay;
+                lastDay = day;
+                const m = item.msg;
+                return (
+                  <li key={item.key} className="flex flex-col">
+                    {showDay && (
+                      <div className="my-2 self-center rounded-full bg-background px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                        {day}
+                      </div>
+                    )}
+                    <MessageBubble
+                      message={m}
+                      showSender={isGroup && !m.fromMe}
+                      reactions={reactionsByTarget.get(m.id)}
+                      onForward={(msg) => setForwardTarget(msg)}
+                      onReply={(msg) => setReplyTo(msg)}
+                      onReact={handleReactMessage}
+                      onEdit={(msg) => {
+                        setEditing(msg);
+                        setEditingText(msg.body);
+                      }}
+                      onDelete={async (msg) => {
+                        if (!chatJid) return;
+                        if (!window.confirm(t("chat.confirmDeleteMessage", { defaultValue: "Apagar esta mensagem para todos?" }))) return;
+                        try {
+                          await deleteMessage(sessionId, chatJid, msg.id);
+                        } catch (e) {
+                          console.error("delete failed", e);
+                          alert(t("chat.errDeleteMessage", { defaultValue: "Não foi possível apagar (mensagens antigas podem não permitir)." }));
+                        }
+                      }}
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         )}
       </div>
       {showSignatureEditor && (

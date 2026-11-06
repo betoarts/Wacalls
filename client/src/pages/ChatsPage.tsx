@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ArrowDownNarrowWide, ArrowUpNarrowWide, CheckCheck, Eye, Filter, Layers, ListFilter, MoreVertical, Plus, XCircle } from "lucide-react";
+import { ArrowDownNarrowWide, ArrowUpNarrowWide, CheckCheck, Eye, Filter, Layers, ListFilter, MoreVertical, Plus, RefreshCw, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { AppShell } from "@/components/layout/AppShell";
@@ -28,7 +28,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
-import { closeChat } from "@/services/chats";
+import { closeChat, syncAllChatContacts } from "@/services/chats";
 import { NewChatDialog } from "@/components/domain/chat/NewChatDialog";
 import { listQueues } from "@/services/queues";
 import type { Queue } from "@/types/queue";
@@ -108,11 +108,44 @@ export const ChatsPage = () => {
   const [sort, setSort] = useState<"desc" | "asc">("desc");
   const [confirmCloseAll, setConfirmCloseAll] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [syncingAll, setSyncingAll] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [queues, setQueues] = useState<Queue[]>([]);
   const [selectedQueueId, setSelectedQueueId] = useState<string>("all");
 
   const sessionQueueId = useSessions((s) => s.sessions.find((x) => x.id === sessionId)?.queueId);
+
+  const handleSyncAll = async () => {
+    if (!sessionId || syncingAll) return;
+    setSyncingAll(true);
+    const toastId = toast.loading(t("pages.chats.syncLoading", { defaultValue: "Sincronizando conversas do WhatsApp…" }));
+    try {
+      const res = await syncAllChatContacts(sessionId);
+      await fetchChats(sessionId);
+      const total = res?.total ?? res?.queued ?? 0;
+      if (res?.groups || res?.contacts) {
+        toast.success(
+          t("pages.chats.syncSuccessDetailed", {
+            defaultValue: `Sincronização concluída: ${res.groups ?? 0} grupos, ${res.contacts ?? 0} contatos.`,
+            groups: res.groups ?? 0,
+            contacts: res.contacts ?? 0,
+          }),
+        );
+      } else {
+        toast.success(
+          t("pages.chats.syncSuccess", {
+            defaultValue: `Sincronização concluída (${total} conversas)!`,
+            count: total,
+          }),
+        );
+      }
+    } catch (err: any) {
+      toast.error(err?.message || t("pages.chats.syncError", { defaultValue: "Não foi possível sincronizar conversas." }));
+    } finally {
+      setSyncingAll(false);
+      toast.dismiss(toastId);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -346,6 +379,16 @@ export const ChatsPage = () => {
             <DropdownMenu>
               <button
                 type="button"
+                onClick={handleSyncAll}
+                disabled={syncingAll}
+                aria-label={t("pages.chats.syncChats", { defaultValue: "Sincronizar conversas do WhatsApp" })}
+                title={t("pages.chats.syncChats", { defaultValue: "Sincronizar conversas do WhatsApp" })}
+                className="grid w-9 shrink-0 place-items-center border-l text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50"
+              >
+                <RefreshCw className={`h-4 w-4 ${syncingAll ? "animate-spin text-primary" : ""}`} />
+              </button>
+              <button
+                type="button"
                 onClick={() => setNewChatOpen(true)}
                 aria-label="Abrir atendimento"
                 title="Abrir atendimento"
@@ -359,7 +402,12 @@ export const ChatsPage = () => {
               >
                 <MoreVertical className="h-4 w-4" />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuContent align="end" className="w-60">
+                <DropdownMenuItem onSelect={handleSyncAll} disabled={syncingAll} className="gap-2">
+                  <RefreshCw className={`h-4 w-4 ${syncingAll ? "animate-spin" : ""}`} />
+                  {t("pages.chats.syncChats", { defaultValue: "Sincronizar conversas do WhatsApp" })}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuLabel className="text-xs uppercase tracking-wide text-muted-foreground">
                   {t("actions.filter")}
                 </DropdownMenuLabel>
@@ -430,6 +478,8 @@ export const ChatsPage = () => {
             selectedQueueId={selectedQueueId}
             sessionQueueId={sessionQueueId}
             queues={queues}
+            onSyncAll={handleSyncAll}
+            syncing={syncingAll}
             onSelect={(jid) => setActiveChat(sessionId, jid)}
             onStatusChange={(status) => {
               if (status === "open") setTab("open");

@@ -44,6 +44,10 @@ Source: "parar.vbs"; DestDir: "{app}"; Flags: ignoreversion
 Source: "iniciar.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "parar.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "status.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "backup.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "backup.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "restaurar.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "restaurar.ps1"; DestDir: "{app}"; Flags: ignoreversion
 ; Configuração inicial (.env é copiado somente se não existir, preservando configurações existentes em atualizações)
 Source: ".env.default"; DestDir: "{app}"; DestName: ".env"; Flags: onlyifdoesntexist
 ; Ícones da aplicação
@@ -55,6 +59,8 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{sys}\wscript.exe"; Parameters: "
 ; Atalhos no Menu Iniciar
 Name: "{group}\{#MyAppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\WaCalls.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\app.ico"
 Name: "{group}\Parar Servidor WaCalls"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\parar.vbs"""; WorkingDir: "{app}"; IconFilename: "{sys}\imageres.dll"; IconIndex: 98
+Name: "{group}\Fazer Backup dos Dados"; Filename: "{app}\backup.bat"; WorkingDir: "{app}"; IconFilename: "{sys}\imageres.dll"; IconIndex: 23
+Name: "{group}\Restaurar Backup"; Filename: "{app}\restaurar.bat"; WorkingDir: "{app}"; IconFilename: "{sys}\imageres.dll"; IconIndex: 24
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 
 [Registry]

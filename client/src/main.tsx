@@ -19,6 +19,7 @@ import EmailSettingsPage from "@/pages/EmailSettingsPage";
 import FeaturesPage from "@/pages/FeaturesPage";
 import HelpPage from "@/pages/HelpPage";
 import WhitelabelSettingsPage from "@/pages/WhitelabelSettingsPage";
+import { BackupPage } from "@/pages/BackupPage";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { ErrorBoundary } from "@/components/shared/ErrorBoundary";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -63,6 +64,7 @@ const Root = () => {
               <Route path="/features" element={<RequireAuth><FeaturesPage /></RequireAuth>} />
               <Route path="/help" element={<RequireAuth><HelpPage /></RequireAuth>} />
               <Route path="/settings/whitelabel" element={<RequireAuth adminOnly><WhitelabelSettingsPage /></RequireAuth>} />
+              <Route path="/settings/backup" element={<RequireAuth adminOnly><BackupPage /></RequireAuth>} />
               <Route path="*" element={<Navigate to="/chats" replace />} />
             </Routes>
           </Suspense>
