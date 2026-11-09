@@ -2,7 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 )
 
 func (s *server) registerKanbanRoutes(mux *http.ServeMux) {
@@ -23,6 +29,7 @@ func (s *server) registerKanbanRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/kanban/cards/{id}", s.requireAuth(s.handleKBCardUpdate))
 	mux.HandleFunc("POST /api/kanban/cards/{id}/move", s.requireAuth(s.handleKBCardMove))
 	mux.HandleFunc("DELETE /api/kanban/cards/{id}", s.requireAuth(s.handleKBCardDelete))
+	mux.HandleFunc("POST /api/kanban/upload", s.requireAuth(s.handleKBUploadImage))
 
 	// Automations
 	mux.HandleFunc("GET /api/kanban/boards/{id}/automations", s.requireAuth(s.handleKBAutomList))
@@ -224,7 +231,8 @@ func (s *server) handleKBCardCreate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ColumnID, Title, Description, Color string
 		SessionID, ChatJID, AssigneeID      string
-		DueAt                               int64
+		ImageURL                            string `json:"imageUrl"`
+		DueAt                               int64  `json:"dueAt"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid body"})
@@ -235,6 +243,7 @@ func (s *server) handleKBCardCreate(w http.ResponseWriter, r *http.Request) {
 		Description: body.Description, Color: body.Color,
 		SessionID: body.SessionID, ChatJID: body.ChatJID,
 		AssigneeID: body.AssigneeID, DueAt: body.DueAt,
+		ImageURL: body.ImageURL,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -257,7 +266,9 @@ func (s *server) handleKBCardUpdate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Title, Description, Color      *string
 		AssigneeID, ChatJID, SessionID *string
-		DueAt                          *int64
+		ImageURL                       *string `json:"imageUrl"`
+		DueAt                          *int64  `json:"dueAt"`
+		ColumnID                       *string `json:"columnId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid body"})
@@ -266,12 +277,74 @@ func (s *server) handleKBCardUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := s.kanban.UpdateCard(r.Context(), id, cardUpdate{
 		Title: body.Title, Description: body.Description, Color: body.Color,
 		AssigneeID: body.AssigneeID, ChatJID: body.ChatJID, SessionID: body.SessionID,
+		ImageURL: body.ImageURL,
 		DueAt: body.DueAt,
+		ColumnID: body.ColumnID,
 	}); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) handleKBUploadImage(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid upload"})
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		file, header, err = r.FormFile("image")
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file required"})
+		return
+	}
+	defer file.Close()
+	if header.Size > 10*1024*1024 {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "max 10MB"})
+		return
+	}
+	ct := header.Header.Get("Content-Type")
+	ext := ".png"
+	switch {
+	case strings.Contains(ct, "jpeg"), strings.Contains(ct, "jpg"):
+		ext = ".jpg"
+	case strings.Contains(ct, "webp"):
+		ext = ".webp"
+	case strings.Contains(ct, "gif"):
+		ext = ".gif"
+	case strings.Contains(ct, "png"):
+		ext = ".png"
+	default:
+		ext = strings.ToLower(filepath.Ext(header.Filename))
+		if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".webp" && ext != ".gif" {
+			writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "only png/jpg/webp/gif allowed"})
+			return
+		}
+	}
+	dir := filepath.Join("media", "kanban")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	fileName := fmt.Sprintf("card-%d-%s%s", time.Now().UnixNano(), newID()[:8], ext)
+	fullPath := filepath.Join(dir, fileName)
+	dst, err := os.Create(fullPath)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if _, err := io.Copy(dst, file); err != nil {
+		dst.Close()
+		_ = os.Remove(fullPath)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	dst.Close()
+
+	url := fmt.Sprintf("/api/media/kanban/%s", fileName)
+	writeJSON(w, http.StatusOK, map[string]string{"url": url})
 }
 
 func (s *server) handleKBCardMove(w http.ResponseWriter, r *http.Request) {

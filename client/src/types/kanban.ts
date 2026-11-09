@@ -33,6 +33,7 @@ export type KanbanCard = {
   chatJid?: string;
   assigneeId?: string;
   dueAt?: number;
+  imageUrl?: string;
   createdAt: number;
   updatedAt: number;
 };

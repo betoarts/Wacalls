@@ -50,6 +50,7 @@ type kanbanCard struct {
 	ChatJID     string `json:"chatJid,omitempty"`
 	AssigneeID  string `json:"assigneeId,omitempty"`
 	DueAt       int64  `json:"dueAt,omitempty"`
+	ImageURL    string `json:"imageUrl,omitempty"`
 	CreatedAt   int64  `json:"createdAt"`
 	UpdatedAt   int64  `json:"updatedAt"`
 }
@@ -103,6 +104,7 @@ func newKanbanStore(ctx context.Context, db *sql.DB) (*kanbanStore, error) {
 			chat_jid TEXT NOT NULL DEFAULT '',
 			assignee_id TEXT NOT NULL DEFAULT '',
 			due_at INTEGER NOT NULL DEFAULT 0,
+			image_url TEXT NOT NULL DEFAULT '',
 			created_at INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL
 		)`,
@@ -128,6 +130,7 @@ func newKanbanStore(ctx context.Context, db *sql.DB) (*kanbanStore, error) {
 	// Best-effort additive migration: add stage_type to existing installs.
 	_, _ = db.ExecContext(ctx, `ALTER TABLE kanban_columns ADD COLUMN stage_type TEXT NOT NULL DEFAULT 'open'`)
 	_, _ = db.ExecContext(ctx, `ALTER TABLE kanban_columns ADD COLUMN sla_hours INTEGER NOT NULL DEFAULT 0`)
+	_, _ = db.ExecContext(ctx, `ALTER TABLE kanban_cards ADD COLUMN image_url TEXT NOT NULL DEFAULT ''`)
 
 	// Limpeza dos cartoes que a versao anterior duplicou: a mesma conversa
 	// entrava varias vezes no mesmo quadro. Fica o mais recente (que e o que o
@@ -345,7 +348,7 @@ func (s *kanbanStore) DeleteColumn(ctx context.Context, id string) error {
 
 func (s *kanbanStore) ListCards(ctx context.Context, boardID string) ([]kanbanCard, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id,board_id,column_id,title,description,color,position,session_id,chat_jid,assignee_id,due_at,created_at,updated_at
+		`SELECT id,board_id,column_id,title,description,color,position,session_id,chat_jid,assignee_id,due_at,COALESCE(image_url,''),created_at,updated_at
 		 FROM kanban_cards WHERE board_id = ? ORDER BY position ASC, created_at ASC`, boardID)
 	if err != nil {
 		return nil, err
@@ -355,7 +358,7 @@ func (s *kanbanStore) ListCards(ctx context.Context, boardID string) ([]kanbanCa
 	for rows.Next() {
 		var c kanbanCard
 		if err := rows.Scan(&c.ID, &c.BoardID, &c.ColumnID, &c.Title, &c.Description, &c.Color, &c.Position,
-			&c.SessionID, &c.ChatJID, &c.AssigneeID, &c.DueAt, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			&c.SessionID, &c.ChatJID, &c.AssigneeID, &c.DueAt, &c.ImageURL, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -365,7 +368,7 @@ func (s *kanbanStore) ListCards(ctx context.Context, boardID string) ([]kanbanCa
 
 func (s *kanbanStore) CardsByChat(ctx context.Context, sessionID, chatJID string) ([]kanbanCard, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id,board_id,column_id,title,description,color,position,session_id,chat_jid,assignee_id,due_at,created_at,updated_at
+		`SELECT id,board_id,column_id,title,description,color,position,session_id,chat_jid,assignee_id,due_at,COALESCE(image_url,''),created_at,updated_at
 		 FROM kanban_cards WHERE session_id = ? AND chat_jid = ? ORDER BY updated_at DESC`,
 		sessionID, chatJID)
 	if err != nil {
@@ -376,7 +379,7 @@ func (s *kanbanStore) CardsByChat(ctx context.Context, sessionID, chatJID string
 	for rows.Next() {
 		var c kanbanCard
 		if err := rows.Scan(&c.ID, &c.BoardID, &c.ColumnID, &c.Title, &c.Description, &c.Color, &c.Position,
-			&c.SessionID, &c.ChatJID, &c.AssigneeID, &c.DueAt, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			&c.SessionID, &c.ChatJID, &c.AssigneeID, &c.DueAt, &c.ImageURL, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -388,6 +391,7 @@ type cardCreate struct {
 	BoardID, ColumnID, Title, Description, Color string
 	SessionID, ChatJID, AssigneeID               string
 	DueAt                                        int64
+	ImageURL                                     string
 }
 
 // CardByChatOnBoard acha o cartao que ja representa esta conversa neste quadro.
@@ -398,14 +402,14 @@ func (s *kanbanStore) CardByChatOnBoard(ctx context.Context, boardID, sessionID,
 		return kanbanCard{}, false
 	}
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id,board_id,column_id,title,description,color,position,session_id,chat_jid,assignee_id,due_at,created_at,updated_at
+		`SELECT id,board_id,column_id,title,description,color,position,session_id,chat_jid,assignee_id,due_at,COALESCE(image_url,''),created_at,updated_at
 		   FROM kanban_cards
 		  WHERE board_id = ? AND chat_jid = ? AND (session_id = ? OR ? = '' OR session_id = '')
 		  ORDER BY updated_at DESC LIMIT 1`,
 		boardID, chatJID, sessionID, sessionID)
 	var c kanbanCard
 	if err := row.Scan(&c.ID, &c.BoardID, &c.ColumnID, &c.Title, &c.Description, &c.Color, &c.Position,
-		&c.SessionID, &c.ChatJID, &c.AssigneeID, &c.DueAt, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		&c.SessionID, &c.ChatJID, &c.AssigneeID, &c.DueAt, &c.ImageURL, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return kanbanCard{}, false
 	}
 	return c, true
@@ -432,13 +436,14 @@ func (s *kanbanStore) CreateCard(ctx context.Context, in cardCreate) (kanbanCard
 		ID: newID(), BoardID: in.BoardID, ColumnID: in.ColumnID,
 		Title: in.Title, Description: in.Description, Color: in.Color, Position: pos,
 		SessionID: in.SessionID, ChatJID: in.ChatJID, AssigneeID: in.AssigneeID, DueAt: in.DueAt,
+		ImageURL: in.ImageURL,
 		CreatedAt: now, UpdatedAt: now,
 	}
 	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO kanban_cards (id,board_id,column_id,title,description,color,position,session_id,chat_jid,assignee_id,due_at,created_at,updated_at)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO kanban_cards (id,board_id,column_id,title,description,color,position,session_id,chat_jid,assignee_id,due_at,image_url,created_at,updated_at)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		c.ID, c.BoardID, c.ColumnID, c.Title, c.Description, c.Color, c.Position,
-		c.SessionID, c.ChatJID, c.AssigneeID, c.DueAt, c.CreatedAt, c.UpdatedAt); err != nil {
+		c.SessionID, c.ChatJID, c.AssigneeID, c.DueAt, c.ImageURL, c.CreatedAt, c.UpdatedAt); err != nil {
 		return kanbanCard{}, err
 	}
 	return c, nil
@@ -446,11 +451,11 @@ func (s *kanbanStore) CreateCard(ctx context.Context, in cardCreate) (kanbanCard
 
 func (s *kanbanStore) GetCard(ctx context.Context, id string) (kanbanCard, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id,board_id,column_id,title,description,color,position,session_id,chat_jid,assignee_id,due_at,created_at,updated_at
+		`SELECT id,board_id,column_id,title,description,color,position,session_id,chat_jid,assignee_id,due_at,COALESCE(image_url,''),created_at,updated_at
 		 FROM kanban_cards WHERE id = ?`, id)
 	var c kanbanCard
 	if err := row.Scan(&c.ID, &c.BoardID, &c.ColumnID, &c.Title, &c.Description, &c.Color, &c.Position,
-		&c.SessionID, &c.ChatJID, &c.AssigneeID, &c.DueAt, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		&c.SessionID, &c.ChatJID, &c.AssigneeID, &c.DueAt, &c.ImageURL, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return kanbanCard{}, ErrKanbanNotFound
 		}
@@ -463,7 +468,9 @@ func (s *kanbanStore) GetCard(ctx context.Context, id string) (kanbanCard, error
 type cardUpdate struct {
 	Title, Description, Color      *string
 	AssigneeID, ChatJID, SessionID *string
+	ImageURL                       *string
 	DueAt                          *int64
+	ColumnID                       *string
 }
 
 func (s *kanbanStore) UpdateCard(ctx context.Context, id string, u cardUpdate) error {
@@ -496,6 +503,14 @@ func (s *kanbanStore) UpdateCard(ctx context.Context, id string, u cardUpdate) e
 	if u.DueAt != nil {
 		sets = append(sets, "due_at = ?")
 		args = append(args, *u.DueAt)
+	}
+	if u.ImageURL != nil {
+		sets = append(sets, "image_url = ?")
+		args = append(args, *u.ImageURL)
+	}
+	if u.ColumnID != nil && *u.ColumnID != "" {
+		sets = append(sets, "column_id = ?")
+		args = append(args, *u.ColumnID)
 	}
 	args = append(args, id)
 	q := "UPDATE kanban_cards SET " + strings.Join(sets, ", ") + " WHERE id = ?"

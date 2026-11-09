@@ -54,6 +54,7 @@ export type CreateCardInput = {
   chatJid?: string;
   assigneeId?: string;
   dueAt?: number;
+  imageUrl?: string;
 };
 export const createCard = (boardId: string, input: CreateCardInput) =>
   apiPost<KanbanCard>(`/api/kanban/boards/${boardId}/cards`, input);
@@ -66,9 +67,38 @@ export type UpdateCardInput = Partial<{
   chatJid: string;
   sessionId: string;
   dueAt: number;
+  imageUrl: string;
+  columnId: string;
 }>;
 export const updateCard = (id: string, input: UpdateCardInput) =>
   put(`/api/kanban/cards/${id}`, input);
+
+export const uploadKanbanImage = async (file: File): Promise<string> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  const r = await fetch(apiUrl("/api/kanban/upload"), {
+    method: "POST",
+    headers: { "X-Client-Id": getClientId() },
+    credentials: "include",
+    body: formData,
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => null);
+    throw new Error(err?.error || `Upload falhou (${r.status})`);
+  }
+  const data = (await r.json()) as { url: string };
+  return data.url;
+};
+
+export type OperatorItem = {
+  id: string;
+  email: string;
+  name?: string;
+  companyName?: string;
+};
+
+export const listOperators = () =>
+  apiGet<{ operators: OperatorItem[] }>("/api/operators").then((r) => r.operators ?? []);
 
 export const moveCard = async (id: string, columnId: string, position: number): Promise<void> => {
   const r = await fetch(apiUrl(`/api/kanban/cards/${id}/move`), {

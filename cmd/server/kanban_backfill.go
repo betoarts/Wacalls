@@ -112,6 +112,9 @@ func (s *server) backfillKanbanCards(ctx context.Context, boardID string, column
 				}
 			}
 			if current != nil {
+				if meta.AssignedUserID != "" && current.AssigneeID == "" {
+					_ = s.kanban.UpdateCard(ctx, current.ID, cardUpdate{AssigneeID: &meta.AssignedUserID})
+				}
 				if targetCol != "" && current.ColumnID != targetCol {
 					managed := current.ColumnID == waitingCol ||
 						current.ColumnID == progressCol ||
@@ -141,11 +144,12 @@ func (s *server) backfillKanbanCards(ctx context.Context, boardID string, column
 			}
 
 			if _, err := s.kanban.CreateCard(ctx, cardCreate{
-				BoardID:   boardID,
-				ColumnID:  targetCol,
-				Title:     title,
-				SessionID: sid,
-				ChatJID:   jid,
+				BoardID:    boardID,
+				ColumnID:   targetCol,
+				Title:      title,
+				SessionID:  sid,
+				ChatJID:    jid,
+				AssigneeID: meta.AssignedUserID,
 			}); err != nil && s.log != nil {
 				s.log.Warn("kanban backfill: create card failed", "sid", sid, "jid", jid, "err", err)
 			}
