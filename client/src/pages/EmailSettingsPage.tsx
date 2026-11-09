@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Info, Loader2, Lock, Mail, Save, Send, ShieldCheck, Sparkles, Zap } from "lucide-react";
+import { AlertTriangle, Check, Info, Loader2, Lock, Mail, Save, Send, ShieldCheck, Sparkles, XCircle, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { AppShell } from "@/components/layout/AppShell";
@@ -34,6 +34,28 @@ export const EmailSettingsPage = () => {
   const [configured, setConfigured] = useState(false);
   const [form, setForm] = useState({ host: "", port: "587", user: "", pass: "", from: "" });
   const [testTo, setTestTo] = useState("");
+  const [testError, setTestError] = useState<string | null>(null);
+  const [testSuccess, setTestSuccess] = useState<string | null>(null);
+
+  const extractEmail = (raw: string) => {
+    const trimmed = raw.trim();
+    const m = trimmed.match(/<([^>]+)>/);
+    return (m ? m[1] : trimmed).trim().toLowerCase();
+  };
+
+  const userEmail = form.user.trim().toLowerCase();
+  const fromEmail = extractEmail(form.from);
+  const senderMismatch = userEmail.includes("@") && !!fromEmail && fromEmail !== userEmail;
+
+  const syncFromWithUser = () => {
+    const cleanUser = form.user.trim();
+    if (!cleanUser) return;
+    const rawFrom = form.from.trim();
+    const angleIdx = rawFrom.indexOf("<");
+    const nextFrom = angleIdx > 0 ? `${rawFrom.slice(0, angleIdx).trim()} <${cleanUser}>` : cleanUser;
+    setForm((f) => ({ ...f, from: nextFrom }));
+    setTestError(null);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -50,8 +72,11 @@ export const EmailSettingsPage = () => {
     return () => { alive = false; };
   }, [t]);
 
-  const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
+  const set = (k: keyof typeof form) => (e: { target: { value: string } }) => {
     setForm((f) => ({ ...f, [k]: e.target.value }));
+    setTestError(null);
+    setTestSuccess(null);
+  };
 
   const applyPreset = (p: ProviderPreset) => {
     setForm((f) => ({
@@ -97,11 +122,22 @@ export const EmailSettingsPage = () => {
       return;
     }
     setTesting(true);
+    setTestError(null);
+    setTestSuccess(null);
     try {
-      await smtpApi.testSmtp(testTo.trim());
-      toast.success(t("pages.emailSettings.testSentToast", { defaultValue: "E-mail de teste enviado com sucesso!" }));
+      await smtpApi.testSmtp(testTo.trim(), {
+        host: form.host.trim() || undefined,
+        port: form.port.trim() || undefined,
+        user: form.user.trim(),
+        pass: form.pass.trim() || undefined,
+        from: form.from.trim() || undefined,
+      });
+      const okMsg = t("pages.emailSettings.testSentToast", { defaultValue: "E-mail de teste enviado com sucesso!" });
+      setTestSuccess(okMsg);
+      toast.success(okMsg);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Falha no envio de teste";
+      setTestError(msg);
       toast.error(`Falha no envio: ${msg}`);
     } finally {
       setTesting(false);
@@ -279,6 +315,19 @@ export const EmailSettingsPage = () => {
                 <p className="text-[11px] text-muted-foreground">
                   Pode ser no formato simples <code className="text-xs font-mono">contato@dominio.com</code> ou com nome <code className="text-xs font-mono">Suporte &lt;contato@dominio.com&gt;</code>.
                 </p>
+                {senderMismatch && (
+                  <div className="mt-2 flex flex-col gap-2 rounded-lg border border-amber-400/50 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                      <span>
+                        O e-mail do Remetente (<code className="font-mono">{fromEmail}</code>) é diferente do Usuário SMTP (<code className="font-mono">{userEmail}</code>). Provedores como Hostinger, Gmail e Office 365 normalmente bloqueiam envios de outro domínio/conta (erro 553).
+                      </span>
+                    </div>
+                    <Button type="button" size="sm" variant="outline" onClick={syncFromWithUser} className="shrink-0 h-7 border-amber-500/40 bg-background/70 text-[11px] hover:bg-background">
+                      Usar e-mail do usuário
+                    </Button>
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end pt-2">
@@ -299,7 +348,7 @@ export const EmailSettingsPage = () => {
                     id="smtp-test"
                     placeholder="seu-email-pessoal@gmail.com"
                     value={testTo}
-                    onChange={(e) => setTestTo(e.target.value)}
+                    onChange={(e) => { setTestTo(e.target.value); setTestError(null); setTestSuccess(null); }}
                     className="flex-1"
                   />
                   <Button variant="outline" onClick={sendTest} disabled={testing} className="shrink-0">
@@ -307,6 +356,21 @@ export const EmailSettingsPage = () => {
                     {t("pages.emailSettings.testButton", { defaultValue: "Enviar Teste" })}
                   </Button>
                 </div>
+                {testError && (
+                  <div className="mt-2 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                    <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div className="min-w-0 flex-1 break-words">
+                      <p className="font-semibold">Erro ao enviar e-mail de teste</p>
+                      <p className="mt-0.5 opacity-90">{testError}</p>
+                    </div>
+                  </div>
+                )}
+                {testSuccess && (
+                  <div className="mt-2 flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300">
+                    <Check className="h-4 w-4 shrink-0" />
+                    <span>{testSuccess}</span>
+                  </div>
+                )}
               </div>
             </div>
 

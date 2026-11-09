@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html"
 	"math/rand"
+	"mime"
 	"net"
 	"net/http"
 	"net/smtp"
@@ -161,6 +162,54 @@ func extractEmailAddress(raw string) string {
 	return raw
 }
 
+func encodeMIMEHeader(val string) string {
+	for i := 0; i < len(val); i++ {
+		if val[i] >= 128 {
+			return mime.QEncoding.Encode("utf-8", val)
+		}
+	}
+	return val
+}
+
+func formatFromHeader(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if start := strings.Index(raw, "<"); start > 0 {
+		if end := strings.Index(raw[start:], ">"); end > 0 {
+			name := strings.TrimSpace(raw[:start])
+			name = strings.Trim(name, `"`)
+			addr := strings.TrimSpace(raw[start+1 : start+end])
+			if name == "" {
+				return addr
+			}
+			return encodeMIMEHeader(name) + " <" + addr + ">"
+		}
+	}
+	return raw
+}
+
+func friendlySMTPError(stage string, user, fromAddr string, err error) error {
+	if err == nil {
+		return nil
+	}
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "sender address rejected") ||
+		strings.Contains(lower, "not owned by user") ||
+		strings.Contains(lower, "sendasdenied") ||
+		strings.Contains(lower, "553 ") {
+		if user != "" && fromAddr != "" && !strings.EqualFold(user, fromAddr) {
+			return fmt.Errorf("o servidor SMTP rejeitou o remetente (%s) porque não pertence ao usuário autenticado (%s). Altere o campo Remetente (From) para usar o mesmo e-mail do Usuário SMTP (%s). Detalhe: %w",
+				fromAddr, user, user, err)
+		}
+		return fmt.Errorf("o servidor SMTP rejeitou o remetente (%s). Verifique se o domínio/e-mail pertence à conta SMTP autenticada. Detalhe: %w", fromAddr, err)
+	}
+	if strings.Contains(lower, "535 ") ||
+		strings.Contains(lower, "authentication failed") ||
+		strings.Contains(lower, "username and password not accepted") {
+		return fmt.Errorf("autenticação SMTP recusada para o usuário %s. Verifique usuário e senha (no Gmail utilize Senha de App de 16 caracteres). Detalhe: %w", user, err)
+	}
+	return fmt.Errorf("%s: %w", stage, err)
+}
+
 // sendBrandedEmail entrega um e-mail HTML usando a configuração SMTP com suporte completo para:
 // - Porta 465 (SSL / TLS direto / SMTPS)
 // - Porta 587 (STARTTLS)
@@ -169,13 +218,18 @@ func extractEmailAddress(raw string) string {
 func sendBrandedEmail(cfg smtpConfig, to, subject, htmlBody string) error {
 	host := strings.TrimSpace(cfg.Host)
 	port := strings.TrimSpace(cfg.Port)
+	user := strings.TrimSpace(cfg.User)
+	pass := strings.TrimSpace(cfg.Pass)
+	fromRaw := strings.TrimSpace(cfg.From)
+	toRaw := strings.TrimSpace(to)
+
 	if port == "" {
 		port = "587"
 	}
 	if host == "" {
 		return fmt.Errorf("servidor SMTP (host) não configurado")
 	}
-	if cfg.From == "" {
+	if fromRaw == "" {
 		return fmt.Errorf("remetente SMTP (from) não configurado")
 	}
 
@@ -189,9 +243,9 @@ func sendBrandedEmail(cfg smtpConfig, to, subject, htmlBody string) error {
 	msgID := fmt.Sprintf("<%d.%d@%s>", time.Now().UnixNano(), rand.Int63(), host)
 
 	headers := []string{
-		"From: " + cfg.From,
-		"To: " + to,
-		"Subject: " + subject,
+		"From: " + formatFromHeader(fromRaw),
+		"To: " + toRaw,
+		"Subject: " + encodeMIMEHeader(subject),
 		"Date: " + dateStr,
 		"Message-ID: " + msgID,
 		"MIME-Version: 1.0",
@@ -238,18 +292,18 @@ func sendBrandedEmail(cfg smtpConfig, to, subject, htmlBody string) error {
 	defer client.Close()
 
 	// Autenticação (quando usuário e senha são informados)
-	if cfg.User != "" && cfg.Pass != "" {
+	if user != "" && pass != "" {
 		var authErr error
 		authOK := false
 
 		// 1. Tenta PLAIN auth
-		plainAuth := smtp.PlainAuth("", cfg.User, cfg.Pass, host)
+		plainAuth := smtp.PlainAuth("", user, pass, host)
 		if errAuth := client.Auth(plainAuth); errAuth == nil {
 			authOK = true
 		} else {
 			authErr = errAuth
 			// 2. Fallback para LOGIN auth (necessário para Office365, cPanel, etc.)
-			lAuth := LoginAuth(cfg.User, cfg.Pass)
+			lAuth := LoginAuth(user, pass)
 			if errLogin := client.Auth(lAuth); errLogin == nil {
 				authOK = true
 				authErr = nil
@@ -259,32 +313,32 @@ func sendBrandedEmail(cfg smtpConfig, to, subject, htmlBody string) error {
 		}
 
 		if !authOK && authErr != nil {
-			return fmt.Errorf("erro de autenticação SMTP (%s): %w", cfg.User, authErr)
+			return friendlySMTPError("erro de autenticação SMTP", user, extractEmailAddress(fromRaw), authErr)
 		}
 	}
 
-	fromAddr := extractEmailAddress(cfg.From)
-	toAddr := extractEmailAddress(to)
+	fromAddr := extractEmailAddress(fromRaw)
+	toAddr := extractEmailAddress(toRaw)
 
 	if err := client.Mail(fromAddr); err != nil {
-		return fmt.Errorf("servidor rejeitou o remetente (MAIL FROM:<%s>): %w", fromAddr, err)
+		return friendlySMTPError(fmt.Sprintf("servidor rejeitou o remetente (MAIL FROM:<%s>)", fromAddr), user, fromAddr, err)
 	}
 	if err := client.Rcpt(toAddr); err != nil {
-		return fmt.Errorf("servidor rejeitou o destinatário (RCPT TO:<%s>): %w", toAddr, err)
+		return friendlySMTPError(fmt.Sprintf("servidor rejeitou o destinatário (RCPT TO:<%s>)", toAddr), user, fromAddr, err)
 	}
 
 	w, err := client.Data()
 	if err != nil {
-		return fmt.Errorf("falha ao abrir canal de dados (DATA): %w", err)
+		return friendlySMTPError("falha ao abrir canal de dados (DATA)", user, fromAddr, err)
 	}
 
 	if _, err := w.Write(msg); err != nil {
 		w.Close()
-		return fmt.Errorf("falha ao enviar conteúdo do e-mail: %w", err)
+		return friendlySMTPError("falha ao enviar conteúdo do e-mail", user, fromAddr, err)
 	}
 
 	if err := w.Close(); err != nil {
-		return fmt.Errorf("falha ao confirmar término do e-mail: %w", err)
+		return friendlySMTPError("falha ao confirmar término do e-mail", user, fromAddr, err)
 	}
 
 	_ = client.Quit()

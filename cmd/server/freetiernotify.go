@@ -238,7 +238,12 @@ func (s *server) registerFreeTierNotifyRoutes(mux *http.ServeMux) {
 // usando o mesmo template branded da recuperação de senha.
 func (s *server) handleTestSMTP(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		To string `json:"to"`
+		To   string  `json:"to"`
+		Host *string `json:"host"`
+		Port *string `json:"port"`
+		User *string `json:"user"`
+		Pass *string `json:"pass"`
+		From *string `json:"from"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeJSON(w, 400, map[string]string{"error": "invalid body"})
@@ -250,8 +255,24 @@ func (s *server) handleTestSMTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := s.loadSMTPConfig(r.Context())
+	if in.Host != nil && strings.TrimSpace(*in.Host) != "" {
+		cfg.Host = strings.TrimSpace(*in.Host)
+	}
+	if in.Port != nil && strings.TrimSpace(*in.Port) != "" {
+		cfg.Port = strings.TrimSpace(*in.Port)
+	}
+	if in.User != nil {
+		cfg.User = strings.TrimSpace(*in.User)
+	}
+	if in.Pass != nil && strings.TrimSpace(*in.Pass) != "" {
+		cfg.Pass = strings.TrimSpace(*in.Pass)
+	}
+	if in.From != nil && strings.TrimSpace(*in.From) != "" {
+		cfg.From = strings.TrimSpace(*in.From)
+	}
+
 	if cfg.Host == "" || cfg.From == "" {
-		writeJSON(w, 400, map[string]string{"error": "SMTP não configurado"})
+		writeJSON(w, 400, map[string]string{"error": "SMTP não configurado (informe servidor e remetente)"})
 		return
 	}
 	brand := s.loadEmailBrand(r.Context(), r)
@@ -259,7 +280,8 @@ func (s *server) handleTestSMTP(w http.ResponseWriter, r *http.Request) {
 		"Este é um e-mail de teste do servidor SMTP. Se você recebeu, sua configuração está funcionando corretamente.",
 		"", "")
 	if err := sendBrandedEmail(cfg, to, "Teste de SMTP — "+brand.AppName, html); err != nil {
-		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		fmt.Printf("[smtp-test] failed (host=%s port=%s user=%s from=%s to=%s): %v\n", cfg.Host, cfg.Port, cfg.User, cfg.From, to, err)
+		writeJSON(w, 422, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "message": "e-mail enviado"})

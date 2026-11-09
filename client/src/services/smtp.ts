@@ -37,5 +37,17 @@ export const saveSmtp = (body: {
   from: string;
 }) => req<SmtpConfig>("/api/billing/smtp", { method: "PUT", body: JSON.stringify(body) });
 
-export const testSmtp = (to: string) =>
-  req<{ ok?: boolean }>("/api/billing/smtp/test", { method: "POST", body: JSON.stringify({ to }) });
+export const testSmtp = (
+  to: string,
+  override?: {
+    host?: string;
+    port?: string;
+    user?: string;
+    pass?: string;
+    from?: string;
+  },
+) =>
+  req<{ ok?: boolean; message?: string }>("/api/billing/smtp/test", {
+    method: "POST",
+    body: JSON.stringify({ to, ...override }),
+  });
