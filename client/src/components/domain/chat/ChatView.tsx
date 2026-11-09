@@ -323,6 +323,7 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
   }, [sessionId, chatJid]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const requireCloseReason = useOptionsStore((s) => !!s.options.requireCloseReason);
   const imgInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -385,9 +386,43 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
     void saveSignature(next.enabled, next.text).catch(() => undefined);
   };
 
+  const scrollToBottom = useCallback((smooth = false) => {
+    const run = () => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTo({
+          top: scrollRef.current.scrollHeight,
+          behavior: smooth ? "smooth" : "auto",
+        });
+      }
+      messagesEndRef.current?.scrollIntoView({
+        behavior: smooth ? "smooth" : "auto",
+        block: "end",
+      });
+    };
+    run();
+    requestAnimationFrame(run);
+    setTimeout(run, 60);
+    setTimeout(run, 150);
+  }, []);
+
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages.length, chatJid]);
+    scrollToBottom(false);
+  }, [messages.length, chatJid, scrollToBottom]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => {
+      const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      if (distanceToBottom < 200) {
+        el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+      }
+    });
+    if (el.firstElementChild) {
+      observer.observe(el.firstElementChild);
+    }
+    return () => observer.disconnect();
+  }, [chatJid]);
 
   useEffect(() => () => {
     // Ensure no MediaRecorder / mic stream leaks across navigation.
@@ -422,9 +457,10 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
       setSending(true);
       try {
         await sendNote(sessionId, chatJid!, value);
-          rememberMessage(value);
+        rememberMessage(value);
         setText("");
         setReplyTo(null);
+        scrollToBottom(true);
       } catch (e) {
         console.error("note failed", e);
       } finally {
@@ -458,6 +494,7 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
       setText("");
       setShowEmoji(false);
       setReplyTo(null);
+      scrollToBottom(true);
     } catch (e: any) {
       console.error("send failed", e);
       const msg = e?.message || "";
@@ -480,6 +517,7 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
     try {
       await sendMedia(sessionId, chatJid, file, kind, text.trim());
       setText("");
+      scrollToBottom(true);
     } catch (e: any) {
       console.error("media send failed", e);
       const msg = e?.message || "";
@@ -520,6 +558,7 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
         try {
           setSending(true);
           await sendMedia(sessionId, chatJid, file, "audio");
+          scrollToBottom(true);
         } catch (e: any) {
           console.error("audio send failed", e);
           const msg = e?.message || "";
@@ -896,8 +935,8 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
   };
 
   return (
-    <div className="relative flex flex-1 flex-col">
-      <header className="flex items-center gap-3 border-b px-4 py-3">
+    <div className="relative flex h-full w-full max-w-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <header className="flex items-center gap-3 border-b px-4 py-3 shrink-0 w-full max-w-full min-w-0 overflow-hidden">
         <button
           type="button"
           onClick={() => setShowContactDetails(true)}
@@ -1067,7 +1106,7 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
           </button>
         </div>
       )}
-      <div ref={scrollRef} className="chat-doodle-bg flex-1 overflow-y-auto px-4 py-3">
+      <div ref={scrollRef} className="chat-doodle-bg flex-1 min-h-0 w-full max-w-full overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-3">
         {timeline.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-xs text-muted-foreground">
             <p>{t("chat.noMessagesYet", { defaultValue: "Sem mensagens ainda nesta conversa." })}</p>
@@ -1085,7 +1124,7 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
             </Button>
           </div>
         ) : (
-          <div className="flex flex-col">
+          <div className="flex flex-col w-full min-w-0">
             <div className="flex justify-center pb-2.5 pt-0.5">
               <Button
                 variant="outline"
@@ -1100,7 +1139,7 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
                   : t("chat.loadOlderFromPhone", { defaultValue: "Carregar mensagens anteriores do celular" })}
               </Button>
             </div>
-            <ul className="flex flex-col gap-1">
+            <ul className="flex flex-col gap-1 w-full min-w-0">
               {timeline.map((item) => {
                 if (item.kind === "evt") return null;
                 const day = formatDayHeader(item.ts);
@@ -1140,6 +1179,7 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
                 );
               })}
             </ul>
+            <div ref={messagesEndRef} className="h-px w-full shrink-0" />
           </div>
         )}
       </div>
@@ -1208,7 +1248,7 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
         </div>
       )}
       <form
-        className="flex items-center gap-2 border-t bg-background px-3 py-2"
+        className="flex items-center gap-1 sm:gap-1.5 border-t bg-background px-2 sm:px-3 py-2 shrink-0 w-full max-w-full min-w-0"
         onSubmit={(e) => {
           e.preventDefault();
           void handleSend();
@@ -1219,7 +1259,7 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
           type="button"
           title={noteMode ? "Mensagem privada ATIVA (clique para desativar)" : "Mensagem privada (nota interna)"}
           onClick={() => setNoteMode((v) => !v)}
-          className={`rounded-md p-2 ${noteMode ? "bg-amber-400/20 text-amber-600 dark:text-amber-300" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+          className={`shrink-0 rounded-md p-1.5 sm:p-2 ${noteMode ? "bg-amber-400/20 text-amber-600 dark:text-amber-300" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
         >
           <StickyNote className="h-4 w-4" />
         </button>
@@ -1228,7 +1268,7 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
           title="Emojis"
           onClick={() => setShowEmoji((v) => !v)}
           disabled={!canSend}
-          className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+          className="shrink-0 rounded-md p-1.5 sm:p-2 text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
         >
           <Smile className="h-4 w-4" />
         </button>
@@ -1237,18 +1277,18 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
           title="Enviar contato"
           onClick={() => { setShowAttach(false); setShowContact((v) => !v); }}
           disabled={!canSend}
-          className={`rounded-md p-2 disabled:cursor-not-allowed disabled:opacity-40 ${showContact ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+          className={`shrink-0 rounded-md p-1.5 sm:p-2 disabled:cursor-not-allowed disabled:opacity-40 ${showContact ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
         >
           <Contact2 className="h-4 w-4" />
         </button>
 
-        <div className="relative">
+        <div className="relative shrink-0">
           <button
             type="button"
             title="Anexar"
             onClick={() => setShowAttach((v) => !v)}
             disabled={!canSend}
-            className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+            className="shrink-0 rounded-md p-1.5 sm:p-2 text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
           >
             <Paperclip className="h-4 w-4" />
           </button>
@@ -1277,7 +1317,7 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
           }}
           onContextMenu={(e) => { e.preventDefault(); setShowSignatureEditor((v) => !v); }}
           disabled={!canSend}
-          className={`rounded-md p-2 disabled:cursor-not-allowed disabled:opacity-40 ${signature.enabled ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+          className={`shrink-0 rounded-md p-1.5 sm:p-2 disabled:cursor-not-allowed disabled:opacity-40 ${signature.enabled ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
         >
           <Signature className="h-4 w-4" />
         </button>
@@ -1285,7 +1325,7 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
           type="button"
           title={t("chat.quickRepliesTitle", { defaultValue: "Respostas rápidas (digite / no campo)" })}
           onClick={() => setShowQuickManager(true)}
-          className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="shrink-0 rounded-md p-1.5 sm:p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           <Zap className="h-4 w-4" />
         </button>
@@ -1294,7 +1334,7 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
           title="Agendar mensagem / follow-up"
           onClick={() => setShowSchedule(true)}
           disabled={!chatJid}
-          className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+          className="shrink-0 rounded-md p-1.5 sm:p-2 text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Clock className="h-4 w-4" />
         </button>
@@ -1316,7 +1356,7 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
           </div>
         ) : (
           <>
-            <div className="relative flex-1">
+            <div className="relative min-w-0 flex-1">
               <input
                 ref={messageInputRef}
                 value={text}
@@ -1446,11 +1486,11 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
               )}
             </div>
             {text.trim() ? (
-              <Button type="submit" size="icon" disabled={sending} aria-label={t("chat.send", { defaultValue: "Enviar" })}>
+              <Button type="submit" size="icon" className="shrink-0" disabled={sending} aria-label={t("chat.send", { defaultValue: "Enviar" })}>
                 <Send className="h-4 w-4" />
               </Button>
             ) : (
-              <Button type="button" size="icon" onClick={startRecording} aria-label={t("chat.recordAudio", { defaultValue: "Gravar áudio" })} disabled={sending || !canSend}>
+              <Button type="button" size="icon" className="shrink-0" onClick={startRecording} aria-label={t("chat.recordAudio", { defaultValue: "Gravar áudio" })} disabled={sending || !canSend}>
                 <Mic className="h-4 w-4" />
               </Button>
             )}

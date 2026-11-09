@@ -297,7 +297,7 @@ const AppShellInner = ({ children }: { children: ReactNode }) => {
 
         <LicenseBanner />
 
-        <main className={`min-h-0 flex-1 px-4 sm:px-6 ${loc.pathname.startsWith("/chats") ? "overflow-hidden py-3" : "overflow-auto py-5"}`}>
+        <main className={`min-h-0 min-w-0 max-w-full flex-1 px-3 sm:px-5 ${loc.pathname.startsWith("/chats") ? "overflow-hidden py-2" : "overflow-auto py-5"}`}>
           {children}
         </main>
       </div>

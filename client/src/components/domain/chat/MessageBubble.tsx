@@ -47,11 +47,11 @@ export const MessageBubble = ({ message, showSender, onForward, onEdit, onDelete
   const mine = message.fromMe;
   if (message.kind === "note") {
     return (
-      <div className="flex justify-center">
-        <div className="my-1 max-w-[85%] rounded-md border border-amber-400/50 bg-amber-100/80 px-3 py-1.5 text-xs text-amber-900 shadow-sm dark:bg-amber-500/15 dark:text-amber-200">
+      <div className="flex w-full min-w-0 justify-center px-2 my-1">
+        <div className="w-full max-w-[85%] rounded-md border border-amber-400/50 bg-amber-100/80 px-3 py-1.5 text-xs text-amber-900 shadow-sm dark:bg-amber-500/15 dark:text-amber-200">
           <div className="mb-0.5 flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-wide opacity-80">
-            <span>Nota privada{message.senderName ? ` · ${message.senderName}` : ""}</span>
-            <span className="font-normal opacity-70">{formatTime(message.ts)}</span>
+            <span className="truncate">Nota privada{message.senderName ? ` · ${message.senderName}` : ""}</span>
+            <span className="shrink-0 font-normal opacity-70">{formatTime(message.ts)}</span>
           </div>
           <div className="whitespace-pre-wrap break-words">{message.body}</div>
         </div>
@@ -155,9 +155,9 @@ export const MessageBubble = ({ message, showSender, onForward, onEdit, onDelete
   };
 
   return (
-    <div className={`group/msg flex flex-col ${mine ? "items-end" : "items-start"} ${reactionChips.length > 0 ? "mb-3" : ""}`}>
+    <div className={`group/msg flex flex-col w-full min-w-0 ${mine ? "items-end pr-1 sm:pr-2" : "items-start pl-1 sm:pl-2"} ${reactionChips.length > 0 ? "mb-3" : ""}`}>
       <div
-        className={`relative max-w-[78%] rounded-2xl px-3 py-1.5 text-sm shadow-sm ${
+        className={`relative max-w-[85%] sm:max-w-[78%] break-words rounded-2xl px-3 py-1.5 text-sm shadow-sm ${
           mine ? "rounded-br-sm bg-primary text-primary-foreground" : "rounded-bl-sm bg-background"
         } ${deleted ? "opacity-80" : ""}`}
       >

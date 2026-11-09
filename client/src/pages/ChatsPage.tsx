@@ -293,8 +293,8 @@ export const ChatsPage = () => {
 
   return (
     <AppShell>
-      <div className="flex h-full min-h-0 gap-3">
-        <div className="flex w-96 shrink-0 flex-col overflow-hidden rounded-2xl border bg-card shadow-sm">
+      <div className="flex h-full w-full max-w-full min-h-0 min-w-0 gap-3 overflow-hidden">
+        <div className="flex w-80 lg:w-96 shrink-0 flex-col h-full max-h-full overflow-hidden rounded-2xl border bg-card shadow-sm">
           {pairedSessions.length > 1 && (
             <div className="border-b p-2">
               <select
@@ -487,7 +487,7 @@ export const ChatsPage = () => {
             }}
           />
         </div>
-        <div className="flex min-w-0 flex-1 overflow-hidden rounded-2xl border bg-card shadow-sm">
+        <div className="flex min-w-0 flex-1 h-full max-h-full overflow-hidden rounded-2xl border bg-card shadow-sm">
           <ChatView
             sessionId={sessionId}
             chatJid={activeJid}
