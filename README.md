@@ -238,7 +238,7 @@ Ao iniciar a aplicação pela primeira vez, o administrador padrão será criado
 
 | Campo | Valor Padrão |
 |---|---|
-| **E-mail** | `wacalls@admin.com` *(ou `admin@equipechat.com`)* |
+| **E-mail** | `wacalls@admin.com` *()* |
 | **Senha** | `admin` *(ou `adminpro`)* |
 
 > ⚠️ **IMPORTANTE**: Altere a senha padrão imediatamente após o primeiro login na tela de **Usuários & Perfil**.
@@ -494,7 +494,7 @@ server {
 
 ## 📄 Licença
 
-Este projeto é distribuído sob os termos da licença incluída no arquivo [LICENSE](LICENSE).
+Este projeto é distribuído sob os termos da licença incluída no arquivo.
 
 ---
 
