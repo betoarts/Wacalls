@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Smartphone,
   CheckCircle2,
+  Tag as TagIcon,
 } from "lucide-react";
 
 import { toast } from "sonner";
@@ -49,6 +50,10 @@ import {
   importContacts,
   type ContactRow,
 } from "@/services/contacts";
+import { listTags, bulkAttachTag, bulkDetachTag } from "@/services/tags";
+import type { Tag } from "@/types/tag";
+import { ChatTagsManager } from "@/components/domain/chat/ChatTagsManager";
+import { eventStream } from "@/lib/event-stream";
 import { useSessions, ensureSessionsWired } from "@/stores/sessions";
 import { useChats } from "@/stores/chats";
 import { resolveLidPhone } from "@/services/chats";
@@ -102,6 +107,11 @@ export default function ContactsPage() {
   const [q, setQ] = useState("");
   const [kind, setKind] = useState<KindFilter>("");
   const [selectedSessionId, setSelectedSessionId] = useState<string>("");
+  const [selectedTagId, setSelectedTagId] = useState<string>("");
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
+  const [bulkTagId, setBulkTagId] = useState<string>("");
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const [openCreate, setOpenCreate] = useState(false);
   const [form, setForm] = useState({ sessionId: "", phone: "", name: "" });
@@ -122,6 +132,20 @@ export default function ContactsPage() {
 
   useEffect(() => {
     ensureSessionsWired();
+    listTags()
+      .then((rows) => setTags(rows))
+      .catch(() => setTags([]));
+    return eventStream.on((ev) => {
+      if (ev.type === "chat-tags") {
+        setContacts((prev) =>
+          prev.map((row) =>
+            row.sessionId === ev.sessionId && row.chatJid === ev.chatJid
+              ? { ...row, tags: ev.tags ?? [] }
+              : row,
+          ),
+        );
+      }
+    });
   }, []);
 
   const load = async () => {
@@ -132,6 +156,7 @@ export default function ContactsPage() {
         q,
         kind,
         sessionId: selectedSessionId || undefined,
+        tagId: selectedTagId || undefined,
         limit: 200,
       });
       setContacts(res.contacts ?? []);
@@ -146,7 +171,7 @@ export default function ContactsPage() {
     const t = setTimeout(load, 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, kind, selectedSessionId]);
+  }, [q, kind, selectedSessionId, selectedTagId]);
 
   const handleImportContacts = async (sid?: string) => {
     const targetSid = sid || syncSessionId || selectedSessionId || sessions[0]?.id;
@@ -314,6 +339,7 @@ export default function ContactsPage() {
           avatarUrl: c.avatarUrl || prev.avatarUrl,
           lastMessage: c.lastMessage || prev.lastMessage,
           lastTs: Math.max(c.lastTs ?? 0, prev.lastTs ?? 0),
+          tags: (c.tags?.length ? c.tags : prev.tags) ?? [],
         });
       } else {
         byKey.set(key, {
@@ -322,11 +348,59 @@ export default function ContactsPage() {
           avatarUrl: prev.avatarUrl || c.avatarUrl,
           lastMessage: prev.lastMessage || c.lastMessage,
           lastTs: Math.max(prev.lastTs ?? 0, c.lastTs ?? 0),
+          tags: (prev.tags?.length ? prev.tags : c.tags) ?? [],
         });
       }
     }
     return Array.from(byKey.values());
   }, [contacts]);
+
+  const rowKey = (c: ContactRow) => `${c.sessionId}::${c.chatJid}`;
+  const selectedRows = useMemo(
+    () => dedupedContacts.filter((c) => selectedKeys.has(rowKey(c))),
+    [dedupedContacts, selectedKeys],
+  );
+  const allVisibleSelected =
+    dedupedContacts.length > 0 && selectedRows.length === dedupedContacts.length;
+
+  const toggleRow = (c: ContactRow) => {
+    const k = rowKey(c);
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (allVisibleSelected) {
+      setSelectedKeys(new Set());
+      return;
+    }
+    setSelectedKeys(new Set(dedupedContacts.map(rowKey)));
+  };
+
+  const handleBulkTag = async (mode: "attach" | "detach") => {
+    if (!bulkTagId || selectedRows.length === 0 || bulkBusy) return;
+    setBulkBusy(true);
+    try {
+      const items = selectedRows.map((c) => ({ sessionId: c.sessionId, chatJid: c.chatJid }));
+      if (mode === "attach") {
+        await bulkAttachTag(bulkTagId, items);
+        toast.success(`Tag aplicada a ${items.length} contato(s)/grupo(s)`);
+      } else {
+        await bulkDetachTag(bulkTagId, items);
+        toast.success(`Tag removida de ${items.length} contato(s)/grupo(s)`);
+      }
+      setSelectedKeys(new Set());
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha na ação em lote");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   // Lazy-resolve @lid rows to real phone digits so the table shows real
   // WhatsApp numbers and the call button dials the right target.
@@ -454,7 +528,85 @@ export default function ContactsPage() {
               <SelectItem value="group">{t("pages.contacts.filterGroups", { defaultValue: "Grupos" })}</SelectItem>
             </SelectContent>
           </Select>
+
+          <Select
+            value={selectedTagId || "all"}
+            onValueChange={(v) => setSelectedTagId(v === "all" ? "" : v)}
+          >
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Todas as tags" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">
+                <span className="font-medium">Todas as tags</span>
+              </SelectItem>
+              {tags.map((tg) => (
+                <SelectItem key={tg.id} value={tg.id}>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: tg.color }}
+                    />
+                    <span className="truncate">{tg.name}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
+
+        {selectedRows.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/40 px-4 py-2.5">
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
+              <TagIcon className="h-3.5 w-3.5 text-primary" />
+              {selectedRows.length} selecionado(s)
+            </span>
+            <Select value={bulkTagId} onValueChange={setBulkTagId}>
+              <SelectTrigger className="h-8 w-[190px] bg-background text-xs">
+                <SelectValue placeholder="Escolha uma tag…" />
+              </SelectTrigger>
+              <SelectContent>
+                {tags.map((tg) => (
+                  <SelectItem key={tg.id} value={tg.id}>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: tg.color }}
+                      />
+                      <span className="truncate">{tg.name}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              className="h-8 text-xs"
+              disabled={!bulkTagId || bulkBusy}
+              onClick={() => void handleBulkTag("attach")}
+            >
+              {bulkBusy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              Aplicar tag
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs"
+              disabled={!bulkTagId || bulkBusy}
+              onClick={() => void handleBulkTag("detach")}
+            >
+              Remover tag
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ml-auto h-8 text-xs"
+              onClick={() => setSelectedKeys(new Set())}
+            >
+              Limpar seleção
+            </Button>
+          </div>
+        )}
 
         {loading ? (
           <div className="flex justify-center py-12">
@@ -466,27 +618,46 @@ export default function ContactsPage() {
             <p className="text-sm text-muted-foreground">{error}</p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border bg-card">
+          <div className="overflow-x-auto rounded-xl border bg-card">
             <table className="w-full text-sm">
               <thead className="bg-muted/40 text-xs uppercase tracking-wider text-muted-foreground">
                 <tr>
+                  <th className="w-10 px-3 py-2 text-left">
+                    <input
+                      type="checkbox"
+                      aria-label="Selecionar todos os contatos visíveis"
+                      checked={allVisibleSelected}
+                      onChange={toggleSelectAll}
+                      className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                    />
+                  </th>
                   <th className="px-4 py-2 text-left font-medium">{t("pages.contacts.colContact", { defaultValue: "Contato" })}</th>
                   <th className="px-4 py-2 text-left font-medium">{t("pages.contacts.colPhone", { defaultValue: "Telefone" })}</th>
                   <th className="px-4 py-2 text-left font-medium">{t("pages.contacts.colConnection", { defaultValue: "Conexão" })}</th>
                   <th className="px-4 py-2 text-left font-medium">{t("pages.contacts.colType", { defaultValue: "Tipo" })}</th>
+                  <th className="px-4 py-2 text-left font-medium">Tags</th>
                   <th className="px-4 py-2 text-right font-medium">{t("pages.contacts.colActions", { defaultValue: "Ações" })}</th>
                 </tr>
               </thead>
               <tbody>
                 {dedupedContacts.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-10 text-center text-muted-foreground">
+                    <td colSpan={7} className="py-10 text-center text-muted-foreground">
                       {t("pages.contacts.noneFound", { defaultValue: "Nenhum contato encontrado" })}
                     </td>
                   </tr>
                 ) : (
                   dedupedContacts.map((c) => (
                     <tr key={`${c.sessionId}:${c.chatJid}`} className="border-t">
+                      <td className="w-10 px-3 py-2">
+                        <input
+                          type="checkbox"
+                          aria-label={`Selecionar ${resolveName(c)}`}
+                          checked={selectedKeys.has(rowKey(c))}
+                          onChange={() => toggleRow(c)}
+                          className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                        />
+                      </td>
                       <td className="px-4 py-2">
                         <div className="flex items-center gap-3">
                           {resolveAvatar(c) ? (
@@ -525,6 +696,29 @@ export default function ContactsPage() {
                             <User className="h-3 w-3" /> {t("pages.contacts.typePerson", { defaultValue: "Pessoa" })}
                           </Badge>
                         )}
+                      </td>
+                      <td className="px-4 py-2">
+                        <ChatTagsManager
+                          sessionId={c.sessionId}
+                          chatJid={c.chatJid}
+                          tags={c.tags ?? []}
+                          allTags={tags}
+                          compact
+                          onTagCreated={(created) =>
+                            setTags((prev) =>
+                              prev.some((x) => x.id === created.id) ? prev : [...prev, created],
+                            )
+                          }
+                          onChange={(next) =>
+                            setContacts((prev) =>
+                              prev.map((row) =>
+                                row.sessionId === c.sessionId && row.chatJid === c.chatJid
+                                  ? { ...row, tags: next }
+                                  : row,
+                              ),
+                            )
+                          }
+                        />
                       </td>
                       <td className="px-4 py-2 text-right">
                         <div className="flex justify-end gap-1">
@@ -797,34 +991,36 @@ export default function ContactsPage() {
                 <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
               </div>
 
-              <div className="space-y-2">
-                <Label>{t("pages.contacts.realPhoneLabel", { defaultValue: "Número real" })}</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={editPhone}
-                    onChange={(e) => setEditPhone(e.target.value)}
-                    placeholder="5511999998888"
-                    className="font-mono"
-                  />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    type="button"
-                    onClick={() => {
-                      if (editPhone) {
-                        void navigator.clipboard.writeText(editPhone);
-                        toast.success(t("pages.contacts.phoneCopiedToast", { defaultValue: "Número copiado" }));
-                      }
-                    }}
-                    aria-label={t("pages.contacts.copyPhone", { defaultValue: "Copiar número" })}
-                  >
-                    <Copy className="h-4 w-4" />
-                  </Button>
+              {!editing.isGroup && (
+                <div className="space-y-2">
+                  <Label>{t("pages.contacts.realPhoneLabel", { defaultValue: "Número real" })}</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={editPhone}
+                      onChange={(e) => setEditPhone(e.target.value)}
+                      placeholder="5511999998888"
+                      className="font-mono"
+                    />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      type="button"
+                      onClick={() => {
+                        if (editPhone) {
+                          void navigator.clipboard.writeText(editPhone);
+                          toast.success(t("pages.contacts.phoneCopiedToast", { defaultValue: "Número copiado" }));
+                        }
+                      }}
+                      aria-label={t("pages.contacts.copyPhone", { defaultValue: "Copiar número" })}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {t("pages.contacts.realPhoneHint", { defaultValue: "Telefone exibido no discador e usado para ligações." })}
+                  </p>
                 </div>
-                <p className="text-[11px] text-muted-foreground">
-                  {t("pages.contacts.realPhoneHint", { defaultValue: "Telefone exibido no discador e usado para ligações." })}
-                </p>
-              </div>
+              )}
 
               <div className="space-y-2">
                 <Label>{t("pages.contacts.jidLabel", { defaultValue: "Identificador do sistema (JID / LID)" })}</Label>
@@ -846,6 +1042,31 @@ export default function ContactsPage() {
                 <p className="text-[11px] text-muted-foreground">
                   {t("pages.contacts.jidHint", { defaultValue: "Gerado pelo WhatsApp. Somente leitura." })}
                 </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Tags</Label>
+                <ChatTagsManager
+                  sessionId={editing.sessionId}
+                  chatJid={editing.chatJid}
+                  tags={editing.tags ?? []}
+                  allTags={tags}
+                  onTagCreated={(created) =>
+                    setTags((prev) =>
+                      prev.some((x) => x.id === created.id) ? prev : [...prev, created],
+                    )
+                  }
+                  onChange={(next) => {
+                    setEditing((prev) => (prev ? { ...prev, tags: next } : prev));
+                    setContacts((prev) =>
+                      prev.map((row) =>
+                        row.sessionId === editing.sessionId && row.chatJid === editing.chatJid
+                          ? { ...row, tags: next }
+                          : row,
+                      ),
+                    );
+                  }}
+                />
               </div>
             </div>
           )}

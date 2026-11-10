@@ -1,6 +1,7 @@
 import type { CallStatus } from "@/types/call";
 import type { SessionInfo, SessionState } from "@/types/session";
 import type { ChatEvent, ChatMessage, ChatMeta } from "@/types/chat";
+import type { Tag } from "@/types/tag";
 import { apiUrl } from "@/lib/api-base";
 
 type CallListRow = {
@@ -27,6 +28,7 @@ export type BrokerEvent =
   | { type: "ura-auto-attend"; sessionId: string; id: string; peer: string; peerName?: string; video: boolean; ts: number }
   | { type: "message"; sessionId: string; chatJid: string; message: ChatMessage }
   | { type: "chat-meta"; meta: ChatMeta }
+  | { type: "chat-tags"; sessionId: string; chatJid: string; tags: Tag[] }
   | { type: "chat-event"; event: ChatEvent }
   | { type: "flow-skip"; sessionId: string; callId: string; flowId: string; reason: string; detail: string; traceId?: string; ts: number }
   | { type: "billing-update"; userId: string; status: string; planId: string; currentPeriodEnd: number; ts: number }
@@ -69,7 +71,7 @@ class EventStream {
     if (this.#es) {
       try {
         this.#es.close();
-      } catch {}
+      } catch { }
       this.#es = null;
     }
 
@@ -91,7 +93,7 @@ class EventStream {
         try {
           const parsed: BrokerEvent = JSON.parse(ev.data);
           for (const l of this.#listeners) l(parsed);
-        } catch {}
+        } catch { }
       };
 
       es.onerror = () => {
@@ -99,7 +101,7 @@ class EventStream {
         if (es.readyState === EventSource.CLOSED) {
           try {
             es.close();
-          } catch {}
+          } catch { }
           if (this.#es === es) {
             this.#es = null;
           }
@@ -153,7 +155,7 @@ class EventStream {
     if (this.#es) {
       try {
         this.#es.close();
-      } catch {}
+      } catch { }
       this.#es = null;
     }
   }

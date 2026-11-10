@@ -1,5 +1,6 @@
 import { apiUrl } from "@/lib/api-base";
 import { getClientId } from "@/lib/client-id";
+import type { Tag } from "@/types/tag";
 
 export interface ContactRow {
   sessionId: string;
@@ -12,6 +13,7 @@ export interface ContactRow {
   lastTs: number;
   lastMessage?: string;
   unread: number;
+  tags?: Tag[];
 }
 
 export interface ContactListResponse {
@@ -25,6 +27,7 @@ export interface ListContactsOpts {
   q?: string;
   kind?: "" | "user" | "group";
   sessionId?: string;
+  tagId?: string;
   limit?: number;
   offset?: number;
 }
@@ -36,6 +39,7 @@ export const listContacts = async (opts: ListContactsOpts = {}): Promise<Contact
   if (opts.q) qs.set("q", opts.q);
   if (opts.kind) qs.set("kind", opts.kind);
   if (opts.sessionId) qs.set("sessionId", opts.sessionId);
+  if (opts.tagId) qs.set("tagId", opts.tagId);
   qs.set("limit", String(opts.limit ?? 50));
   qs.set("offset", String(opts.offset ?? 0));
   const res = await fetch(apiUrl(`/api/contacts?${qs.toString()}`), { credentials: "include" });

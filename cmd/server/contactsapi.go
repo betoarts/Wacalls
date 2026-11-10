@@ -38,21 +38,37 @@ var (
 
 const contactsCacheTTL = 2 * time.Second
 
+func invalidateContactsCache() {
+	contactsCacheMu.Lock()
+	clear(contactsCache)
+	contactsCacheMu.Unlock()
+}
+
 // contactRow is the per-contact row returned by GET /api/contacts. Contacts are
 // derived from the union of every chat seen across sessions visible to the
 // authenticated user (admins see all). Phone is best-effort extracted from the
 // JID (digits before "@").
 type contactRow struct {
-	SessionID   string `json:"sessionId"`
-	SessionName string `json:"sessionName"`
-	ChatJID     string `json:"chatJid"`
-	Name        string `json:"name"`
-	Phone       string `json:"phone"`
-	AvatarURL   string `json:"avatarUrl,omitempty"`
-	IsGroup     bool   `json:"isGroup"`
-	LastTs      int64  `json:"lastTs"`
-	LastMessage string `json:"lastMessage,omitempty"`
-	Unread      int    `json:"unread"`
+	SessionID   string   `json:"sessionId"`
+	SessionName string   `json:"sessionName"`
+	ChatJID     string   `json:"chatJid"`
+	Name        string   `json:"name"`
+	Phone       string   `json:"phone"`
+	AvatarURL   string   `json:"avatarUrl,omitempty"`
+	IsGroup     bool     `json:"isGroup"`
+	LastTs      int64    `json:"lastTs"`
+	LastMessage string   `json:"lastMessage,omitempty"`
+	Unread      int      `json:"unread"`
+	Tags        []tagRow `json:"tags,omitempty"`
+}
+
+func rowHasTag(tags []tagRow, tagID string) bool {
+	for _, t := range tags {
+		if t.ID == tagID {
+			return true
+		}
+	}
+	return false
 }
 
 // jidPhone extracts the dial-able number from a WhatsApp JID. For groups,
@@ -101,6 +117,7 @@ func (s *server) handleContactsList(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
 	kind := r.URL.Query().Get("kind") // "" | "user" | "group"
 	sessionID := strings.TrimSpace(r.URL.Query().Get("sessionId"))
+	tagID := strings.TrimSpace(r.URL.Query().Get("tagId"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
 		limit = 50
@@ -118,7 +135,7 @@ func (s *server) handleContactsList(w http.ResponseWriter, r *http.Request) {
 	// Filtering and pagination happen on the cached slice so the
 	// expensive per-session aggregation runs at most once per TTL.
 	filtered := rows
-	if kind != "" || q != "" || sessionID != "" {
+	if kind != "" || q != "" || sessionID != "" || tagID != "" {
 		filtered = make([]contactRow, 0, len(rows))
 		for _, row := range rows {
 			if sessionID != "" && row.SessionID != sessionID {
@@ -128,6 +145,9 @@ func (s *server) handleContactsList(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if kind == "group" && !row.IsGroup {
+				continue
+			}
+			if tagID != "" && !rowHasTag(row.Tags, tagID) {
 				continue
 			}
 			if q != "" {
@@ -212,6 +232,10 @@ func (s *server) collectContactRows(ctx context.Context, u *currentUser) []conta
 			if s.chatMeta != nil {
 				metas, _ = s.chatMeta.ListBySession(ctx, sinfo.ID)
 			}
+			var tagMap map[string][]tagRow
+			if s.tags != nil {
+				tagMap, _ = s.tags.ListForSession(ctx, sinfo.ID)
+			}
 			unread, _ := s.messages.UnreadCounts(ctx, sinfo.ID)
 			local := make([]contactRow, 0, len(chats)+len(metas))
 			seen := make(map[string]bool, len(chats)+len(metas))
@@ -242,6 +266,7 @@ func (s *server) collectContactRows(ctx context.Context, u *currentUser) []conta
 					LastTs:      c.LastTs,
 					LastMessage: c.LastMessage,
 					Unread:      unread[c.ChatJID],
+					Tags:        tagMap[c.ChatJID],
 				})
 			}
 
@@ -269,6 +294,7 @@ func (s *server) collectContactRows(ctx context.Context, u *currentUser) []conta
 					LastTs:      meta.UpdatedAt,
 					LastMessage: "",
 					Unread:      0,
+					Tags:        tagMap[jid],
 				})
 			}
 
@@ -658,6 +684,7 @@ func (s *server) handleContactCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	invalidateContactsCache()
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"sessionId": sessionID,
 		"chatJid":   jid,
@@ -747,6 +774,7 @@ func (s *server) handleContactUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	invalidateContactsCache()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "avatarUrl": avatarURL})
 }
 
@@ -776,5 +804,9 @@ func (s *server) handleContactDelete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if s.tags != nil {
+		_ = s.tags.DeleteForChat(r.Context(), sessionID, jid)
+	}
+	invalidateContactsCache()
 	w.WriteHeader(http.StatusNoContent)
 }

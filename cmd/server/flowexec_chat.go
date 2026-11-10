@@ -389,14 +389,82 @@ func (e *FlowExecutor) runChatNode(
 		return "", "", nil
 
 	case "chat_tag_add":
-		t := get("tag")
+		t := strings.TrimSpace(get("tag"))
 		setVar("last_tag_added", t)
+		chatJID := resolveTo()
+		if !dryRun && e.tags != nil && t != "" && sessionID != "" && chatJID != "" {
+			tenantID := ""
+			if e.bridge != nil && e.bridge.mgr != nil {
+				tenantID = e.bridge.mgr.tenantOf(sessionID)
+			}
+			if tenantID == "" {
+				tenantID = lookupVar(vars, "flow.owner")
+			}
+			tg, err := e.tags.ResolveOrCreateInTenant(ctx, t, tenantID)
+			if err != nil {
+				logEv(n.ID, "chat_tag_error", map[string]string{"tag": t, "error": err.Error()})
+				return "", "", nil
+			}
+			if err := e.tags.AttachToChat(ctx, sessionID, chatJID, tg.ID, tenantID); err != nil {
+				logEv(n.ID, "chat_tag_error", map[string]string{"tag": t, "error": err.Error()})
+				return "", "", nil
+			}
+			invalidateContactsCache()
+			if e.broker != nil {
+				rows, _ := e.tags.ListForChat(ctx, sessionID, chatJID)
+				if rows == nil {
+					rows = []tagRow{}
+				}
+				e.broker.deliverScoped(sessionID, map[string]any{
+					"type":      "chat-tags",
+					"sessionId": sessionID,
+					"chatJid":   chatJID,
+					"tags":      rows,
+				})
+			}
+			logEv(n.ID, "chat_tag_added", map[string]string{"tag": tg.Name, "tagId": tg.ID, "chat": chatJID})
+			return "", "", nil
+		}
 		logEv(n.ID, "chat_tag_added", map[string]string{"tag": t})
 		return "", "", nil
 
 	case "chat_tag_remove":
-		t := get("tag")
+		t := strings.TrimSpace(get("tag"))
 		setVar("last_tag_removed", t)
+		chatJID := resolveTo()
+		if !dryRun && e.tags != nil && t != "" && sessionID != "" && chatJID != "" {
+			tenantID := ""
+			if e.bridge != nil && e.bridge.mgr != nil {
+				tenantID = e.bridge.mgr.tenantOf(sessionID)
+			}
+			if tenantID == "" {
+				tenantID = lookupVar(vars, "flow.owner")
+			}
+			tg, err := e.tags.FindByNameInTenant(ctx, t, tenantID)
+			if err != nil {
+				logEv(n.ID, "chat_tag_not_found", map[string]string{"tag": t})
+				return "", "", nil
+			}
+			if err := e.tags.DetachFromChat(ctx, sessionID, chatJID, tg.ID); err != nil {
+				logEv(n.ID, "chat_tag_error", map[string]string{"tag": t, "error": err.Error()})
+				return "", "", nil
+			}
+			invalidateContactsCache()
+			if e.broker != nil {
+				rows, _ := e.tags.ListForChat(ctx, sessionID, chatJID)
+				if rows == nil {
+					rows = []tagRow{}
+				}
+				e.broker.deliverScoped(sessionID, map[string]any{
+					"type":      "chat-tags",
+					"sessionId": sessionID,
+					"chatJid":   chatJID,
+					"tags":      rows,
+				})
+			}
+			logEv(n.ID, "chat_tag_removed", map[string]string{"tag": tg.Name, "tagId": tg.ID, "chat": chatJID})
+			return "", "", nil
+		}
 		logEv(n.ID, "chat_tag_removed", map[string]string{"tag": t})
 		return "", "", nil
 

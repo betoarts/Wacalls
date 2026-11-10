@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ArrowDownNarrowWide, ArrowUpNarrowWide, CheckCheck, Eye, Filter, Layers, ListFilter, MoreVertical, Plus, RefreshCw, XCircle } from "lucide-react";
+import { ArrowDownNarrowWide, ArrowUpNarrowWide, CheckCheck, Eye, Filter, Layers, ListFilter, MoreVertical, Plus, RefreshCw, Tag as TagIcon, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { AppShell } from "@/components/layout/AppShell";
@@ -32,6 +32,8 @@ import { closeChat, syncAllChatContacts } from "@/services/chats";
 import { NewChatDialog } from "@/components/domain/chat/NewChatDialog";
 import { listQueues } from "@/services/queues";
 import type { Queue } from "@/types/queue";
+import { listTags } from "@/services/tags";
+import type { Tag } from "@/types/tag";
 
 type Tab = "open" | "waiting" | "group";
 
@@ -81,7 +83,7 @@ export const ChatsPage = () => {
     const chatsPorSessao = useChats.getState().chatsBySession;
     const alvo =
       sid ||
-      Object.keys(chatsPorSessao).find((s) => (chatsPorSessao[s] ?? []).some((c) => c.jid === jid)) ||
+      Object.keys(chatsPorSessao).find((s) => (chatsPorSessao[s] ?? []).some((c) => c.chatJid === jid)) ||
       pickedSession ||
       activeId ||
       sessions.find((s) => s.paired)?.id ||
@@ -112,6 +114,8 @@ export const ChatsPage = () => {
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [queues, setQueues] = useState<Queue[]>([]);
   const [selectedQueueId, setSelectedQueueId] = useState<string>("all");
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [selectedTagId, setSelectedTagId] = useState<string>("all");
 
   const sessionQueueId = useSessions((s) => s.sessions.find((x) => x.id === sessionId)?.queueId);
 
@@ -156,10 +160,35 @@ export const ChatsPage = () => {
       .catch(() => {
         if (!cancelled) setQueues([]);
       });
+    listTags()
+      .then((ts) => {
+        if (!cancelled) setTags(ts);
+      })
+      .catch(() => {
+        if (!cancelled) setTags([]);
+      });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  // Merge newly created tags (e.g. from ChatTagsManager inline creation) into
+  // the filter dropdown without extra polling.
+  useEffect(() => {
+    const known = new Set(tags.map((tg) => tg.id));
+    const added: Tag[] = [];
+    for (const c of chats) {
+      for (const tg of c.tags ?? []) {
+        if (!known.has(tg.id)) {
+          known.add(tg.id);
+          added.push(tg);
+        }
+      }
+    }
+    if (added.length > 0) {
+      setTags((prev) => [...prev, ...added]);
+    }
+  }, [chats, tags]);
 
   useEffect(() => {
     if (sessionId) void fetchChats(sessionId);
@@ -222,6 +251,14 @@ export const ChatsPage = () => {
           if (chatQueue !== selectedQueueId) continue;
         }
       }
+      if (selectedTagId !== "all") {
+        const chatTags = c.tags ?? [];
+        if (selectedTagId === "none") {
+          if (chatTags.length > 0) continue;
+        } else {
+          if (!chatTags.some((tg) => tg.id === selectedTagId)) continue;
+        }
+      }
       // Count tickets (conversations) per tab, not unread messages — the unread
       // badge already lives inside each ticket card. Grupos "fechados" não
       // devem contar no badge, senão o número persiste após "Finalizar".
@@ -234,14 +271,14 @@ export const ChatsPage = () => {
         counts.open += 1;
     }
     return counts;
-  }, [chats, me?.id, selectedQueueId, sessionQueueId]);
+  }, [chats, me?.id, selectedQueueId, selectedTagId, sessionQueueId]);
 
   const pairedSessions = useMemo(() => sessions.filter((s) => s.paired), [sessions]);
 
   // Conversations targeted by "Fechar todos da aba" — respects current filters.
   const targetedForBulk = useMemo(
-    () => filterChats(chats, tab, me?.id ?? null, unreadOnly, selectedQueueId, sessionQueueId),
-    [chats, tab, me?.id, unreadOnly, selectedQueueId, sessionQueueId],
+    () => filterChats(chats, tab, me?.id ?? null, unreadOnly, selectedQueueId, sessionQueueId, selectedTagId),
+    [chats, tab, me?.id, unreadOnly, selectedQueueId, sessionQueueId, selectedTagId],
   );
 
   const TAB_LABEL: Record<Tab, string> = {
@@ -313,43 +350,82 @@ export const ChatsPage = () => {
               </select>
             </div>
           )}
-          {queues.length > 0 && (
-            <div className="border-b bg-muted/20 px-2.5 py-1.5">
-              <div className="flex items-center gap-2">
-                <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-muted-foreground">
-                  <Layers className="h-3.5 w-3.5 text-primary" />
-                  Fila:
-                </span>
-                <select
-                  aria-label="Filtrar por fila"
-                  className="h-8 flex-1 truncate rounded-md border bg-background px-2 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                  value={selectedQueueId}
-                  onChange={(e) => setSelectedQueueId(e.target.value)}
-                >
-                  <option value="all">Todas as filas ({chats.length})</option>
-                  {queues.map((q) => {
-                    const count = chats.filter((c) => (c.queueId || sessionQueueId) === q.id).length;
-                    return (
-                      <option key={q.id} value={q.id}>
-                        {q.name} ({count})
-                      </option>
-                    );
-                  })}
-                  <option value="none">
-                    Sem fila ({chats.filter((c) => !(c.queueId || sessionQueueId)).length})
-                  </option>
-                </select>
-                {selectedQueueId !== "all" && (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedQueueId("all")}
-                    className="shrink-0 text-[10px] text-primary hover:underline"
-                    title="Limpar filtro de fila"
+          {(queues.length > 0 || tags.length > 0) && (
+            <div className="space-y-1.5 border-b bg-muted/20 px-2.5 py-1.5">
+              {queues.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                    <Layers className="h-3.5 w-3.5 text-primary" />
+                    Fila:
+                  </span>
+                  <select
+                    aria-label="Filtrar por fila"
+                    className="h-8 flex-1 truncate rounded-md border bg-background px-2 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    value={selectedQueueId}
+                    onChange={(e) => setSelectedQueueId(e.target.value)}
                   >
-                    Limpar
-                  </button>
-                )}
-              </div>
+                    <option value="all">Todas as filas ({chats.length})</option>
+                    {queues.map((q) => {
+                      const count = chats.filter((c) => (c.queueId || sessionQueueId) === q.id).length;
+                      return (
+                        <option key={q.id} value={q.id}>
+                          {q.name} ({count})
+                        </option>
+                      );
+                    })}
+                    <option value="none">
+                      Sem fila ({chats.filter((c) => !(c.queueId || sessionQueueId)).length})
+                    </option>
+                  </select>
+                  {selectedQueueId !== "all" && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedQueueId("all")}
+                      className="shrink-0 text-[10px] text-primary hover:underline"
+                      title="Limpar filtro de fila"
+                    >
+                      Limpar
+                    </button>
+                  )}
+                </div>
+              )}
+              {tags.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                    <TagIcon className="h-3.5 w-3.5 text-primary" />
+                    Tag:
+                  </span>
+                  <select
+                    aria-label="Filtrar por tag"
+                    className="h-8 flex-1 truncate rounded-md border bg-background px-2 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    value={selectedTagId}
+                    onChange={(e) => setSelectedTagId(e.target.value)}
+                  >
+                    <option value="all">Todas as tags ({chats.length})</option>
+                    {tags.map((tg) => {
+                      const count = chats.filter((c) => (c.tags ?? []).some((x) => x.id === tg.id)).length;
+                      return (
+                        <option key={tg.id} value={tg.id}>
+                          {tg.name} ({count})
+                        </option>
+                      );
+                    })}
+                    <option value="none">
+                      Sem tags ({chats.filter((c) => !(c.tags && c.tags.length > 0)).length})
+                    </option>
+                  </select>
+                  {selectedTagId !== "all" && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTagId("all")}
+                      className="shrink-0 text-[10px] text-primary hover:underline"
+                      title="Limpar filtro de tag"
+                    >
+                      Limpar
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )}
           <div className="flex items-stretch border-b text-xs font-medium">
@@ -443,17 +519,22 @@ export const ChatsPage = () => {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          {(unreadOnly || sort === "asc" || selectedQueueId !== "all") && (
+          {(unreadOnly || sort === "asc" || selectedQueueId !== "all" || selectedTagId !== "all") && (
             <div className="flex items-center gap-2 border-b bg-muted/30 px-3 py-1.5 text-[11px] text-muted-foreground">
               <ListFilter className="h-3 w-3" />
               <span className="truncate">
-                {unreadOnly ? t("pages.chats.filterUnreadHint") : ""}
-                {unreadOnly && sort === "asc" ? " · " : ""}
-                {sort === "asc" ? t("pages.chats.filterOldestHint") : ""}
-                {(unreadOnly || sort === "asc") && selectedQueueId !== "all" ? " · " : ""}
-                {selectedQueueId !== "all"
-                  ? `Fila: ${selectedQueueId === "none" ? "Sem fila" : queues.find((q) => q.id === selectedQueueId)?.name ?? selectedQueueId}`
-                  : ""}
+                {[
+                  unreadOnly ? t("pages.chats.filterUnreadHint") : "",
+                  sort === "asc" ? t("pages.chats.filterOldestHint") : "",
+                  selectedQueueId !== "all"
+                    ? `Fila: ${selectedQueueId === "none" ? "Sem fila" : queues.find((q) => q.id === selectedQueueId)?.name ?? selectedQueueId}`
+                    : "",
+                  selectedTagId !== "all"
+                    ? `Tag: ${selectedTagId === "none" ? "Sem tags" : tags.find((tg) => tg.id === selectedTagId)?.name ?? selectedTagId}`
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </span>
               <button
                 type="button"
@@ -461,6 +542,7 @@ export const ChatsPage = () => {
                   setUnreadOnly(false);
                   setSort("desc");
                   setSelectedQueueId("all");
+                  setSelectedTagId("all");
                 }}
                 className="ml-auto text-[10px] uppercase tracking-wider text-primary hover:underline"
               >
@@ -476,6 +558,7 @@ export const ChatsPage = () => {
             unreadOnly={unreadOnly}
             sort={sort}
             selectedQueueId={selectedQueueId}
+            selectedTagId={selectedTagId}
             sessionQueueId={sessionQueueId}
             queues={queues}
             onSyncAll={handleSyncAll}

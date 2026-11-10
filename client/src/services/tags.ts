@@ -36,3 +36,14 @@ export const attachChatTag = (sessionId: string, chatJid: string, tagId: string)
 
 export const detachChatTag = (sessionId: string, chatJid: string, tagId: string) =>
   apiDelete(`/api/sessions/${enc(sessionId)}/chats/${enc(chatJid)}/tags/${enc(tagId)}`);
+
+export type BulkTagTarget = {
+  sessionId: string;
+  chatJid: string;
+};
+
+export const bulkAttachTag = (tagId: string, items: BulkTagTarget[]) =>
+  apiPost<{ ok: boolean; count: number }>("/api/tags/bulk/attach", { tagId, items });
+
+export const bulkDetachTag = (tagId: string, items: BulkTagTarget[]) =>
+  apiPost<{ ok: boolean; count: number }>("/api/tags/bulk/detach", { tagId, items });

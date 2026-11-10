@@ -29,6 +29,7 @@ interface Props {
   unreadOnly?: boolean;
   sort?: "desc" | "asc";
   selectedQueueId?: string;
+  selectedTagId?: string;
   sessionQueueId?: string;
   queues?: Queue[];
   onSyncAll?: () => void;
@@ -46,6 +47,7 @@ export const filterChats = (
   unreadOnly = false,
   selectedQueueId = "all",
   sessionQueueId?: string,
+  selectedTagId = "all",
 ): ChatSummary[] =>
   chats.filter((c) => {
     const isGroup = c.isGroup || isGroupJid(c.chatJid);
@@ -72,6 +74,14 @@ export const filterChats = (
         if (chatQueue !== selectedQueueId) return false;
       }
     }
+    if (selectedTagId && selectedTagId !== "all") {
+      const tags = c.tags ?? [];
+      if (selectedTagId === "none") {
+        if (tags.length > 0) return false;
+      } else {
+        if (!tags.some((t) => t.id === selectedTagId)) return false;
+      }
+    }
     return true;
   });
 
@@ -83,6 +93,7 @@ export const ChatList = ({
   unreadOnly,
   sort = "desc",
   selectedQueueId = "all",
+  selectedTagId = "all",
   sessionQueueId,
   queues = [],
   onSyncAll,
@@ -97,11 +108,11 @@ export const ChatList = ({
   const [transferFor, setTransferFor] = useState<ChatSummary | null>(null);
   const [closeFor, setCloseFor] = useState<ChatSummary | null>(null);
   const filtered = useMemo(() => {
-    const list = filterChats(chats, tab, myId, unreadOnly, selectedQueueId, sessionQueueId);
+    const list = filterChats(chats, tab, myId, unreadOnly, selectedQueueId, sessionQueueId, selectedTagId);
     return [...list].sort((a, b) =>
       sort === "asc" ? (a.lastTs ?? 0) - (b.lastTs ?? 0) : (b.lastTs ?? 0) - (a.lastTs ?? 0),
     );
-  }, [chats, tab, myId, unreadOnly, selectedQueueId, sessionQueueId, sort]);
+  }, [chats, tab, myId, unreadOnly, selectedQueueId, sessionQueueId, selectedTagId, sort]);
 
   if (loading && filtered.length === 0) {
     return <div className="p-4 text-sm text-muted-foreground">{t("chat.loadingChats", { defaultValue: "Carregando conversas…" })}</div>;
@@ -337,7 +348,7 @@ const ChatRow = ({
             )}
           </div>
 
-          <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
             <span>{formatRelative(chat.lastTs)}</span>
             {queue && (
               <span
@@ -347,6 +358,25 @@ const ChatRow = ({
               >
                 <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: queue.color }} />
                 <span className="truncate">{queue.name}</span>
+              </span>
+            )}
+            {(chat.tags ?? []).slice(0, 2).map((tg) => (
+              <span
+                key={tg.id}
+                className="inline-flex max-w-[100px] items-center gap-1 truncate rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none"
+                style={tagChipStyle(tg.color)}
+                title={`Tag: ${tg.name}`}
+              >
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: tg.color }} />
+                <span className="truncate">{tg.name}</span>
+              </span>
+            ))}
+            {(chat.tags?.length ?? 0) > 2 && (
+              <span
+                className="inline-flex shrink-0 items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground"
+                title={(chat.tags ?? []).slice(2).map((tg) => tg.name).join(", ")}
+              >
+                +{(chat.tags?.length ?? 0) - 2}
               </span>
             )}
           </div>

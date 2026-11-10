@@ -985,6 +985,15 @@ func (s *server) handleChatList(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+	if s.tags != nil && len(chats) > 0 {
+		if tagMap, err := s.tags.ListForSession(r.Context(), sess.id); err == nil && len(tagMap) > 0 {
+			for i := range chats {
+				if ts := tagMap[chats[i].ChatJID]; len(ts) > 0 {
+					chats[i].Tags = ts
+				}
+			}
+		}
+	}
 	sort.Slice(chats, func(i, j int) bool {
 		return chats[i].LastTs > chats[j].LastTs
 	})

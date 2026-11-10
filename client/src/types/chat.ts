@@ -1,3 +1,5 @@
+import type { Tag } from "@/types/tag";
+
 export interface ChatMessage {
   id: string;
   sessionId: string;
@@ -50,6 +52,7 @@ export interface ChatSummary {
   unread?: number;
   lastReadTs?: number;
   avatarUrl?: string;
+  tags?: Tag[];
 }
 
 export interface ChatMeta {

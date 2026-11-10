@@ -43,6 +43,7 @@ interface Props {
   chatJid: string;
   chat?: ChatSummary;
   messages: ChatMessage[];
+  tags?: Tag[];
   onTagsChange?: (tags: Tag[]) => void;
 }
 
@@ -101,6 +102,7 @@ export const ContactDetailsPanel = ({
   chatJid,
   chat,
   messages,
+  tags,
   onTagsChange,
 }: Props) => {
   const [tab, setTab] = useState<Tab>("summary");
@@ -112,8 +114,14 @@ export const ContactDetailsPanel = ({
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [closures, setClosures] = useState<ChatClosure[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
-  const [chatTags, setChatTags] = useState<Tag[]>([]);
+  const [chatTags, setChatTags] = useState<Tag[]>(tags ?? []);
   const [activeTagId, setActiveTagId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (tags !== undefined) {
+      setChatTags(tags);
+    }
+  }, [tags]);
 
   const isGroup = !!chat?.isGroup || isGroupJid(chatJid);
   const displayName = chat?.name?.trim() || formatPeer(chatJid);
@@ -340,6 +348,50 @@ export const ContactDetailsPanel = ({
               label="Última interação"
               value={fmtDate(stats.last)}
             />
+          </div>
+
+          <div className="space-y-2 border-b px-6 py-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Tags ({isGroup ? "grupo" : "contato"})
+              </span>
+              {activeTagId && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTagId(null)}
+                  className="text-[10px] text-primary hover:underline"
+                >
+                  Limpar filtro
+                </button>
+              )}
+            </div>
+            <ChatTagsManager
+              sessionId={sessionId}
+              chatJid={chatJid}
+              tags={tags !== undefined ? chatTags : undefined}
+              onChange={(next) => {
+                setChatTags(next);
+                onTagsChange?.(next);
+              }}
+            />
+            {chatTags.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1 pt-0.5 text-[10px] text-muted-foreground">
+                <span>Filtrar por tag:</span>
+                {chatTags.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setActiveTagId((prev) => (prev === t.id ? null : t.id))}
+                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium transition ${
+                      activeTagId === t.id ? "ring-2 ring-primary ring-offset-1" : "opacity-80 hover:opacity-100"
+                    }`}
+                    style={tagChipStyle(t.color)}
+                  >
+                    #{t.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
 

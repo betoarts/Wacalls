@@ -54,6 +54,7 @@ type FlowExecutor struct {
 	bridge *FlowBridge
 	broker *Broker
 	tracer *flowTracer
+	tags   *tagStore
 
 	mu      sync.Mutex
 	running map[string]context.CancelFunc // callID -> cancel
@@ -336,6 +337,15 @@ func (e *FlowExecutor) AttachTracer(t *flowTracer) {
 		return
 	}
 	e.tracer = t
+}
+
+// AttachTags wires the tag store so chat_tag_add and chat_tag_remove nodes
+// persist tags on contacts and groups and publish SSE updates.
+func (e *FlowExecutor) AttachTags(ts *tagStore) {
+	if e == nil {
+		return
+	}
+	e.tags = ts
 }
 
 func (e *FlowExecutor) trace(step FlowTraceStep) FlowTraceStep {

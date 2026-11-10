@@ -216,6 +216,7 @@ func newServer(ctx context.Context, dbPath, staticDir string, maxCalls int, log 
 	bridge.AttachBroker(broker)
 	bridge.AttachTracer(tracer)
 	exec.AttachBridge(bridge)
+	exec.AttachTags(tags)
 
 	broker.PersistCall = func(rec CallRecord) {
 		owner := ""

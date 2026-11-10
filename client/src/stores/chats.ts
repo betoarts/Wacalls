@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { eventStream, type BrokerEvent } from "@/lib/event-stream";
 import { listChats, listMessages, markChatRead as markChatReadAPI } from "@/services/chats";
 import type { ChatMessage, ChatSummary } from "@/types/chat";
+import type { Tag } from "@/types/tag";
 import { playNotificationSound } from "@/lib/notification-sound";
 import { isGroupJid } from "@/components/domain/chat/format";
 
@@ -88,6 +89,18 @@ useChats.subscribe((state, prev) => {
 
 export const setActiveChat = (sessionId: string, jid: string | null) =>
   useChats.setState((s) => ({ activeJidBySession: { ...s.activeJidBySession, [sessionId]: jid } }));
+
+export const setChatTagsStore = (sessionId: string, jid: string, tags: Tag[]) => {
+  useChats.setState((s) => {
+    const list = s.chatsBySession[sessionId];
+    if (!list) return {} as Partial<State>;
+    const idx = list.findIndex((c) => c.chatJid === jid);
+    if (idx < 0) return {} as Partial<State>;
+    const next = [...list];
+    next[idx] = { ...next[idx], tags };
+    return { chatsBySession: { ...s.chatsBySession, [sessionId]: next } };
+  });
+};
 
 // Optimistically updates the local conversation status so the chat moves
 // between the "Atendendo" / "Aguardando" tabs immediately after the user
@@ -418,6 +431,7 @@ export const ensureChatsWired = (): void => {
   eventStream.on((ev: BrokerEvent) => {
     if (ev.type === "message") upsertMessage(ev.message);
     if (ev.type === "chat-meta") upsertMeta(ev.meta);
+    if (ev.type === "chat-tags") setChatTagsStore(ev.sessionId, ev.chatJid, ev.tags ?? []);
   });
 };
 

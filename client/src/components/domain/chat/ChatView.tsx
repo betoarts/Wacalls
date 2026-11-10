@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { isCallRecordingEnabled } from "@/lib/call-recording-pref";
 import { CheckCheck, History, KanbanSquare, Mic, Paperclip, Phone, PhoneOff, Search, Send, Smartphone, Smile, UserPlus, Image as ImageIcon, FileText, Film, Contact2, Settings2, Signature, StickyNote, Workflow, Zap, Clock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useChats, setChatStatus, upsertMessage, prependMessages } from "@/stores/chats";
+import { useChats, setChatStatus, setChatTagsStore, upsertMessage, prependMessages } from "@/stores/chats";
 import { useAuth } from "@/stores/auth";
 import { assignChat, closeChat, deleteMessage, editMessage, fetchChatHistoryFromPhone, forwardMessage, getSignature, listChatClosures, listChatEvents, reactMessage, resolveLidPhone, sendContact, sendMedia, sendMessage, sendNote, setSignature as saveSignature, triggerFlow } from "@/services/chats";
 import { listContacts } from "@/services/contacts";
@@ -226,7 +226,10 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
     let cancelled = false;
     listChatTags(sessionId, chatJid)
       .then((rows) => {
-        if (!cancelled) setChatTags(rows);
+        if (!cancelled) {
+          setChatTags(rows);
+          setChatTagsStore(sessionId, chatJid, rows);
+        }
       })
       .catch(() => {
         if (!cancelled) setChatTags([]);
@@ -235,6 +238,12 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
       cancelled = true;
     };
   }, [sessionId, chatJid]);
+
+  useEffect(() => {
+    if (chat?.tags) {
+      setChatTags(chat.tags);
+    }
+  }, [chat?.tags]);
 
   // Load Kanban cards linked to this chat plus their board/column so we can
   // render a chip in the header. Also refreshes when the link dialog closes.
@@ -957,58 +966,72 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
             displayName.slice(0, 1).toUpperCase()
           )}
         </button>
-        <button
-          type="button"
-          onClick={() => setShowContactDetails(true)}
-          className="min-w-0 flex-1 overflow-hidden text-left transition hover:opacity-80"
-          title="Ver dados do contato"
-        >
-          <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
-            <span className="truncate text-sm font-semibold">{displayName}</span>
-            {chatQueue && (
-              <span
-                className="inline-flex max-w-[130px] shrink-0 items-center truncate rounded-full px-2 py-0.5 text-[10px] font-semibold leading-none"
-                style={tagChipStyle(chatQueue.color)}
-                title={`Fila: ${chatQueue.name}`}
-              >
-                {chatQueue.name}
-              </span>
-            )}
-            {kanbanChips.slice(0, 1).map((chip) => {
-              const color = chip.column?.color || chip.board?.color || "#6366f1";
-              const label = chip.column?.name || chip.board?.name || "Kanban";
-              const full = `${chip.board?.name ?? "Kanban"} · ${chip.column?.name ?? ""} · ${chip.card.title}`;
-              return (
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowContactDetails(true)}
+            className="block w-full min-w-0 text-left transition hover:opacity-80"
+            title="Ver dados do contato"
+          >
+            <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
+              <span className="truncate text-sm font-semibold">{displayName}</span>
+              {chatQueue && (
                 <span
-                  key={chip.card.id}
-                  className="inline-flex max-w-[130px] shrink-0 items-center gap-1 truncate rounded-full px-2 py-0.5 text-[10px] font-semibold leading-none"
-                  style={tagChipStyle(color)}
-                  title={full}
+                  className="inline-flex max-w-[130px] shrink-0 items-center truncate rounded-full px-2 py-0.5 text-[10px] font-semibold leading-none"
+                  style={tagChipStyle(chatQueue.color)}
+                  title={`Fila: ${chatQueue.name}`}
                 >
-                  <KanbanSquare className="h-2.5 w-2.5 shrink-0" />
-                  <span className="truncate">{label}</span>
+                  {chatQueue.name}
                 </span>
-              );
-            })}
-            {kanbanChips.length > 1 && (
-              <span
-                className="inline-flex shrink-0 items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground"
-                title={kanbanChips.map((c) => `${c.board?.name ?? "Kanban"} · ${c.column?.name ?? ""}`).join("\n")}
-              >
-                +{kanbanChips.length - 1}
+              )}
+              {kanbanChips.slice(0, 1).map((chip) => {
+                const color = chip.column?.color || chip.board?.color || "#6366f1";
+                const label = chip.column?.name || chip.board?.name || "Kanban";
+                const full = `${chip.board?.name ?? "Kanban"} · ${chip.column?.name ?? ""} · ${chip.card.title}`;
+                return (
+                  <span
+                    key={chip.card.id}
+                    className="inline-flex max-w-[130px] shrink-0 items-center gap-1 truncate rounded-full px-2 py-0.5 text-[10px] font-semibold leading-none"
+                    style={tagChipStyle(color)}
+                    title={full}
+                  >
+                    <KanbanSquare className="h-2.5 w-2.5 shrink-0" />
+                    <span className="truncate">{label}</span>
+                  </span>
+                );
+              })}
+              {kanbanChips.length > 1 && (
+                <span
+                  className="inline-flex shrink-0 items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground"
+                  title={kanbanChips.map((c) => `${c.board?.name ?? "Kanban"} · ${c.column?.name ?? ""}`).join("\n")}
+                >
+                  +{kanbanChips.length - 1}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-[11px] text-muted-foreground">
+                {isGroup
+                  ? t("chat.peerGroup", { defaultValue: "Grupo" })
+                  : chatJid.endsWith("@lid")
+                    ? (lidPhone ? formatPhone(lidPhone) : t("chat.hiddenNumber", { defaultValue: "Número oculto" }))
+                    : formatPhone(chatJid)}
               </span>
-            )}
+            </div>
+          </button>
+          <div className="mt-1 flex items-center gap-1.5 min-w-0">
+            <ChatTagsManager
+              sessionId={sessionId}
+              chatJid={chatJid}
+              tags={chatTags}
+              onChange={(next) => {
+                setChatTags(next);
+                setChatTagsStore(sessionId, chatJid, next);
+              }}
+              compact
+            />
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="truncate text-[11px] text-muted-foreground">
-              {isGroup
-                ? t("chat.peerGroup", { defaultValue: "Grupo" })
-                : chatJid.endsWith("@lid")
-                  ? (lidPhone ? formatPhone(lidPhone) : t("chat.hiddenNumber", { defaultValue: "Número oculto" }))
-                  : formatPhone(chatJid)}
-            </span>
-          </div>
-        </button>
+        </div>
         <div className="flex items-center gap-2">
           {!isGroup && (
             <CallButtons sessionId={sessionId} chatJid={chatJid} lidPhone={lidPhone} />
@@ -1704,7 +1727,11 @@ export const ChatView = ({ sessionId, chatJid, onStatusChange }: Props) => {
           chatJid={chatJid}
           chat={chat}
           messages={messages}
-          onTagsChange={setChatTags}
+          tags={chatTags}
+          onTagsChange={(next) => {
+            setChatTags(next);
+            setChatTagsStore(sessionId, chatJid, next);
+          }}
         />
       )}
       {chatJid && (

@@ -40,9 +40,10 @@ type ChatSummary struct {
 	Status         string `json:"status,omitempty"`
 	AssignedUserID string `json:"assignedUserId,omitempty"`
 	QueueID        string `json:"queueId,omitempty"`
-	Unread         int    `json:"unread"`
-	LastReadTs     int64  `json:"lastReadTs"`
-	AvatarURL      string `json:"avatarUrl,omitempty"`
+	Unread         int      `json:"unread"`
+	LastReadTs     int64    `json:"lastReadTs"`
+	AvatarURL      string   `json:"avatarUrl,omitempty"`
+	Tags           []tagRow `json:"tags,omitempty"`
 }
 
 type messageStore struct{ db *sql.DB }

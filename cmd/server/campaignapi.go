@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -30,16 +31,37 @@ func (s *server) registerCampaignRoutes(mux *http.ServeMux) {
 // handleTagChats devolve as conversas marcadas com uma tag, para a campanha
 // montar a lista "todo mundo com a tag X".
 func (s *server) handleTagChats(w http.ResponseWriter, r *http.Request) {
-	if currentUserFromReq(r) == nil {
+	u := currentUserFromReq(r)
+	if u == nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
-	chats, err := s.tags.ChatsWithTag(r.Context(), r.PathValue("id"))
+	tagID := r.PathValue("id")
+	ok, err := s.canAccessTag(r, tagID)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, ErrTagNotFound) {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	if !ok {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	chats, err := s.tags.ChatsWithTag(r.Context(), tagID)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"chats": chats})
+	filtered := make([]chatComTag, 0, len(chats))
+	for _, c := range chats {
+		if s.userCanAccessSession(u, c.SessionID) {
+			filtered = append(filtered, c)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"chats": filtered})
 }
 
 /** Carrega a campanha conferindo que ela é do usuário. */
