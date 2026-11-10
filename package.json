@@ -1,6 +1,7 @@
 {
   "name": "wacalls",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "scripts": {
     "setup": "npm --prefix client install && go mod download",
