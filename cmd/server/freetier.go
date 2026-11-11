@@ -10,16 +10,10 @@ import (
 	"time"
 )
 
-// Free tier — quando o usuário não tem assinatura paga ativa, recebe:
-//   - 1 conexão WhatsApp
-//   - 50 ligações por semana
-//   - 50 conversas (mensagens enviadas) por semana
-//
-// Após atingir os limites, retorna 402 com QuotaError para o frontend
-// exibir o convite a comprar plano.
-//
-// Os limites podem ser ajustados pelo super admin em
-// settings_kv (chaves free_tier_connections/calls/chats).
+// Free tier — limites padrão para contas gratuitas (sem assinatura paga).
+// O valor 0 desativa o limite correspondente (uso ilimitado). Por padrão
+// todos os limites vêm desativados (0 = sem limite), podendo ser ajustados
+// pelo super admin em settings_kv (chaves free_tier_connections/calls/chats).
 
 type freeTierLimits struct {
 	Connections int
@@ -28,7 +22,7 @@ type freeTierLimits struct {
 }
 
 func defaultFreeTierLimits() freeTierLimits {
-	return freeTierLimits{Connections: 1, CallsWeek: 50, ChatsWeek: 50}
+	return freeTierLimits{Connections: 0, CallsWeek: 0, ChatsWeek: 0}
 }
 
 func (s *server) freeTierLimits(ctx context.Context) freeTierLimits {
@@ -87,6 +81,17 @@ func (s *server) weeklyUsage(ctx context.Context, userID, kind string) int {
 func (s *server) bumpWeeklyUsage(ctx context.Context, userID, kind string) {
 	if s == nil || s.db == nil || userID == "" {
 		return
+	}
+	lim := s.freeTierLimits(ctx)
+	switch kind {
+	case "free_calls":
+		if lim.CallsWeek <= 0 {
+			return
+		}
+	case "free_chats":
+		if lim.ChatsWeek <= 0 {
+			return
+		}
 	}
 	_, _ = s.db.ExecContext(ctx,
 		`INSERT INTO usage_weekly(user_id, week, kind, count) VALUES(?,?,?,1)
@@ -185,16 +190,26 @@ func (s *server) handleFreeTierStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lim := s.freeTierLimits(r.Context())
+	unlimited := lim.Connections <= 0 && lim.CallsWeek <= 0 && lim.ChatsWeek <= 0
+	paid := unlimited || s.userHasPaidPlan(r.Context(), u.ID, u.IsAdmin())
+	alerts := []freeTierAlertRow{}
+	if !paid {
+		alerts = s.listFreeTierAlerts(r.Context(), u.ID)
+	}
+	connectionsUsed := 0
+	if s.sessions != nil {
+		connectionsUsed = len(s.sessions.infosFor(u.ID, false))
+	}
 	resp := freeTierStatusResponse{
-		Paid:            s.userHasPaidPlan(r.Context(), u.ID, u.IsAdmin()),
+		Paid:            paid,
 		Connections:     lim.Connections,
-		ConnectionsUsed: len(s.sessions.infosFor(u.ID, false)),
+		ConnectionsUsed: connectionsUsed,
 		CallsLimit:      lim.CallsWeek,
 		CallsUsed:       s.weeklyUsage(r.Context(), u.ID, "free_calls"),
 		ChatsLimit:      lim.ChatsWeek,
 		ChatsUsed:       s.weeklyUsage(r.Context(), u.ID, "free_chats"),
 		Week:            currentWeekKey(),
-		Alerts:          s.listFreeTierAlerts(r.Context(), u.ID),
+		Alerts:          alerts,
 	}
 	writeJSON(w, 200, resp)
 }

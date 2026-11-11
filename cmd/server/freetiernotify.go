@@ -90,7 +90,16 @@ func (s *server) maybeNotifyFreeTierThreshold(ctx context.Context, userID, kind 
 	if s == nil || s.db == nil || userID == "" {
 		return
 	}
-	if s.userHasPaidPlan(ctx, userID, false) {
+	isAdmin := false
+	if s.auth != nil {
+		if ok, err := s.auth.HasRole(ctx, userID, RoleAdmin); err == nil && ok {
+			isAdmin = true
+		}
+	}
+	if !isAdmin && strings.EqualFold(s.userEmail(ctx, userID), SuperAdminEmail) {
+		isAdmin = true
+	}
+	if s.userHasPaidPlan(ctx, userID, isAdmin) {
 		return
 	}
 	used, limit, label := s.freeTierUsage(ctx, userID, kind)
